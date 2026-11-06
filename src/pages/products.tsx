@@ -329,6 +329,8 @@ export default function ProductsPage() {
   // que traba es visible sin abrir la consola.
   const [imageStep, setImageStep] = useState<string | null>(null);
 
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
   const {
     register,
     handleSubmit,
@@ -488,68 +490,83 @@ export default function ProductsPage() {
   };
 
   /** Núcleo del picker: valida y procesa una imagen sin importar su origen. */
-  const processImageFile = (file: File) => {
+
+  const processImageFile = async (file: File) => {
     if (!file) return;
+
     if (!file.type.startsWith("image/")) {
       toast({
         title: "Archivo no compatible",
-        description: "Selecciona una imagen en formato PNG, JPG o WebP.",
+        description: "Selecciona una imagen PNG, JPG, WebP o GIF.",
         tone: "error",
       });
       return;
     }
 
-    // Los GIF animados no sobreviven al canvas (solo queda el primer frame):
-    // pasan tal cual. Todo lo demás se redimensiona y comprime para que el
-    // formulario y el upload trabajen con algo chico.
-    if (file.type === "image/gif") {
-      setImageStep("Leyendo archivo…");
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          setValue("image", reader.result, { shouldDirty: true });
-        }
-        setImageStep(null);
-      };
-      reader.onerror = () => {
-        setImageStep(null);
-        toast({
-          title: "Imagen no procesada",
-          description: "No se pudo leer el archivo. Vuelve a seleccionarlo.",
-          tone: "error",
-        });
-      };
-      reader.readAsDataURL(file);
-      return;
-    }
-
     setImageStep("Leyendo archivo…");
-    const started = Date.now();
-    compressProductImage(file, (step) =>
-      setImageStep(
-        step.stage === "procesando"
-          ? `Procesando… ${Math.round((step.progress ?? 0) * 100)}%`
-          : `Listo… ${step.elapsedMs} ms`,
-      ),
-    )
-      .then((dataUrl) => {
-        setImageStep(`aplicada… ${Date.now() - started} ms`);
-        setValue("image", dataUrl, { shouldDirty: true });
-      })
-      .catch((cause: unknown) =>
-        toast({
-          title: "Imagen no procesada",
-          description: messageOf(cause),
-          tone: "error",
-        }),
-      )
-      .finally(() => setImageStep(null));
+
+    try {
+      let imageData: string;
+
+      if (file.type === "image/gif") {
+        imageData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+
+          reader.onload = () => {
+            if (typeof reader.result === "string") {
+              resolve(reader.result);
+            } else {
+              reject(new Error("No se pudo leer la imagen GIF."));
+            }
+          };
+
+          reader.onerror = () => {
+            reject(new Error("Error al leer el archivo seleccionado."));
+          };
+
+          reader.readAsDataURL(file);
+        });
+      } else {
+        imageData = await compressProductImage(file, (step) => {
+          setImageStep(
+            step.stage === "procesando"
+              ? `Procesando… ${Math.round((step.progress ?? 0) * 100)}%`
+              : `Procesando… ${step.elapsedMs} ms`,
+          );
+        });
+      }
+
+      setValue("image", imageData, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+
+      toast({
+        title: "Imagen cargada",
+        description: "La imagen del producto se agregó correctamente.",
+        tone: "success",
+      });
+    } catch (cause: unknown) {
+      toast({
+        title: "Imagen no procesada",
+        description: messageOf(cause),
+        tone: "error",
+      });
+    } finally {
+      setImageStep(null);
+    }
   };
 
   const onImageChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (file) processImageFile(file);
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+
+    if (!file) return;
+
+    // Permite seleccionar nuevamente el mismo archivo.
+    input.value = "";
+
+    processImageFile(file);
   };
 
   /** Vista previa sin diálogo del sistema: soltar el archivo sobre la tarjeta. */
@@ -1424,7 +1441,7 @@ export default function ProductsPage() {
 
           <Field
             label="Imagen del producto"
-            hint="Arrastrá una imagen acá, pegala con Ctrl+V o usá el botón. Si no agregas una foto, se usará el emoji de la categoría."
+            hint="Arrastra una imagen, pégala con Ctrl+V o selecciónala desde tu dispositivo."
             className="sm:col-span-2"
           >
             <div
@@ -1432,6 +1449,7 @@ export default function ProductsPage() {
               onDrop={onImageDrop}
               onDragOver={onImageDragOver}
             >
+              {/* Vista previa */}
               <span
                 className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-xl border text-2xl"
                 style={{
@@ -1453,41 +1471,54 @@ export default function ProductsPage() {
                   </span>
                 )}
               </span>
+
               <div className="flex flex-wrap items-center gap-2">
-                <label
+                {/* Input real, controlado mediante referencia */}
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  disabled={Boolean(imageStep)}
+                  onChange={onImageChange}
+                />
+
+                {/* Botón que abre el explorador */}
+                <button
+                  type="button"
+                  disabled={Boolean(imageStep)}
+                  onClick={() => imageInputRef.current?.click()}
                   className={cn(
-                    "inline-flex h-9 select-none items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-xs font-semibold transition hover:border-brand/40 hover:bg-surface-3",
-                    imageStep
-                      ? "pointer-events-none opacity-60"
-                      : "cursor-pointer text-foreground",
+                    "inline-flex h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-xs font-semibold transition",
+                    "hover:border-brand/40 hover:bg-surface-3",
+                    "disabled:pointer-events-none disabled:opacity-60",
                   )}
-                  aria-disabled={Boolean(imageStep)}
                 >
                   {imageStep ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <ImagePlus className="size-4" />
                   )}
+
                   {imageStep ?? "Subir imagen"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="sr-only"
-                    disabled={Boolean(imageStep)}
-                    onChange={onImageChange}
-                  />
-                </label>
-                {values.image ? (
+                </button>
+
+                {values.image && (
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     icon={<X className="size-4" />}
-                    onClick={() => setValue("image", "", { shouldDirty: true })}
+                    onClick={() =>
+                      setValue("image", "", {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
                   >
                     Quitar
                   </Button>
-                ) : null}
+                )}
               </div>
             </div>
           </Field>
