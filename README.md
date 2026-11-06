@@ -74,13 +74,15 @@ bun install
    bun scripts/seed-auth.mjs
    ```
 
-   El script crea los usuarios demo con `service_role`, sincroniza sus perfiles y solo siembra ventas si la tabla `sales` está vacía. Para producción puedes editarlo o crear el administrador desde **Authentication → Users** y asignarle el rol con:
+   El script crea los usuarios demo con `service_role`, sincroniza sus perfiles (rol y estado incluidos) y solo siembra ventas si la tabla `sales` está vacía. Para producción puedes editarlo o crear el administrador desde **Authentication → Users** y asignarle el rol con:
 
    ```sql
-   update public.profiles set role_code = 'administrador' where id = '<uuid-del-usuario>';
+   update public.profiles
+      set role_code = 'administrador', active = true
+    where id = '<uuid-del-usuario>';
    ```
 
-   El trigger `on_auth_user_created` crea el perfil automáticamente.
+   El trigger `on_auth_user_created` crea el perfil automáticamente con rol `cajero` y la cuenta **inactiva**: el rol enviado en el metadata de Auth se ignora, así que un registro público no puede autoasignarse privilegios. La cuenta empieza a operar cuando un administrador la activa. El registro público está deshabilitado (`enable_signup = false` en `supabase/config.toml`); las cuentas del personal se crean desde el panel o con el script de seed.
 
 5. Genera/actualiza los tipos TypeScript (opcional, ya están versionados):
 
@@ -185,6 +187,7 @@ No se guarda estado crítico solo en el navegador: precios, stock, totales, impu
 | `20261031001200_void_purchase.sql` | Anulación de compras con reversión de stock |
 | `20261031001300_profile_privilege_guard.sql` | Bloquea la auto-escalada de rol/estado en `profiles` |
 | `20261031001400_product_price_sync.sql` | Sincroniza `products.price` con la presentación base en ambos sentidos |
+| `20261031001500_harden_new_user_profile.sql` | `handle_new_user` ignora el rol del metadata de Auth y crea el perfil inactivo |
 
 ### Tablas principales
 

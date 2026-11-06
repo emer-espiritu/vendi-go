@@ -70,7 +70,7 @@ async function ensureUser(account, existing) {
       email: account.email,
       password: PASSWORD,
       email_confirm: true,
-      user_metadata: { full_name: account.name, phone: account.phone, role: account.role }
+      user_metadata: { full_name: account.name, phone: account.phone }
     })
     if (error) throw new Error(`${account.email}: ${error.message}`)
     id = data.user.id
@@ -79,13 +79,14 @@ async function ensureUser(account, existing) {
     const { error } = await admin.auth.admin.updateUserById(id, {
       password: PASSWORD,
       email_confirm: true,
-      user_metadata: { full_name: account.name, phone: account.phone, role: account.role }
+      user_metadata: { full_name: account.name, phone: account.phone }
     })
     if (error) throw new Error(`${account.email}: ${error.message}`)
     console.log(`  existe  ${account.email} (${account.role})`)
   }
 
-  // El trigger crea el perfil; aquí se sincronizan rol, estado y datos visibles.
+  // El trigger crea el perfil como `cajero` e inactivo; el rol y el estado reales
+  // se asignan aquí con service_role, sin depender del metadata de Auth.
   const { error: profileError } = await admin
     .from('profiles')
     .update({
