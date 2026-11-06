@@ -54,9 +54,10 @@ bun install
    VITE_SUPABASE_URL=https://<tu-proyecto>.supabase.co
    VITE_SUPABASE_PUBLISHABLE_KEY=<publishable key>
    SUPABASE_SERVICE_ROLE_KEY=<service_role key>
+   SEED_DEMO_PASSWORD=<contraseña de las cuentas demo, mínimo 8 caracteres>
    ```
 
-   La publishable key está en **Project Settings → API**. La `service_role` key solo se usa en el script de seed (server-side) y **nunca** se expone al navegador: no lleva prefijo `VITE_`.
+   La publishable key está en **Project Settings → API**. La `service_role` key solo se usa en el script de seed (server-side) y **nunca** se expone al navegador: no lleva prefijo `VITE_`. `SEED_DEMO_PASSWORD` es obligatoria cuando el proyecto no es local; el seed crea un administrador y se niega a usar la contraseña de demostración contra un Supabase remoto.
 
 3. Vincula la carpeta con el proyecto y aplica las migraciones:
 
@@ -125,7 +126,7 @@ Reglas de seguridad:
 | `almacen@vendigo.pe` | almacenero | activo |
 | `cajero2@vendigo.pe` | cajero | inactivo |
 
-Contraseña de todos: `vendigo123` (cámbiala antes de publicar). El panel de cuentas de prueba solo se muestra en desarrollo (`import.meta.env.DEV`).
+Contraseña de todos: `SEED_DEMO_PASSWORD`. Si no se define y el proyecto es local, el seed usa `vendigo123`; contra un proyecto remoto el script aborta. El panel de cuentas de prueba solo se muestra en desarrollo (`import.meta.env.DEV`).
 
 ## Scripts
 

@@ -12,8 +12,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-
-const PASSWORD = 'vendigo123'
+import { resolveDemoPassword } from './lib/demo-password.mjs'
 
 function loadEnv() {
   const env = { ...process.env }
@@ -34,6 +33,14 @@ const url = env.VITE_SUPABASE_URL
 const key = env.VITE_SUPABASE_PUBLISHABLE_KEY
 if (!url || !key) {
   console.error('Falta VITE_SUPABASE_URL o VITE_SUPABASE_PUBLISHABLE_KEY en .env')
+  process.exit(1)
+}
+
+let PASSWORD
+try {
+  PASSWORD = resolveDemoPassword(env, url)
+} catch (cause) {
+  console.error(cause.message)
   process.exit(1)
 }
 

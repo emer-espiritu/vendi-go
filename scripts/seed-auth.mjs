@@ -6,13 +6,14 @@
  *
  *   bun scripts/seed-auth.mjs
  *
- * Requiere `.env` con VITE_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.
+ * Requiere `.env` con VITE_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY. Contra un
+ * proyecto remoto también exige SEED_DEMO_PASSWORD (mínimo 8 caracteres): la
+ * contraseña de demostración solo se usa en un Supabase local.
  */
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-
-const PASSWORD = 'vendigo123'
+import { resolveDemoPassword } from './lib/demo-password.mjs'
 
 const DEMO_USERS = [
   { name: 'Carlos Mendoza', email: 'admin@vendigo.pe', role: 'administrador', phone: '+51 987 654 321', active: true },
@@ -43,6 +44,14 @@ const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY
 
 if (!url || !serviceKey) {
   console.error('Falta VITE_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en .env')
+  process.exit(1)
+}
+
+let PASSWORD
+try {
+  PASSWORD = resolveDemoPassword(env, url)
+} catch (cause) {
+  console.error(cause.message)
   process.exit(1)
 }
 
