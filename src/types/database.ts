@@ -1056,6 +1056,14 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"v_profile_directory": {
+                  Row: {
+                    "active": boolean,"avatar_url": string | null,"full_name": string,"id": string,"role_code": Database["public"]['Enums']["app_role"]
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
                 },"v_purchases_summary": {
                   Row: {
                     "last_purchase_at": string | null,"orders_count": number | null,"pending_count": number | null,"supplier_id": string,"supplier_name": string | null,"total": number | null

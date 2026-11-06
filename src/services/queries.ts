@@ -64,6 +64,8 @@ export interface RawSnapshot {
   salePayments: Row[]
   movements: Row[]
   profiles: Row[]
+  /** Directorio mínimo (sin datos de contacto) para mapear `user_id` a nombre. */
+  profileDirectory: Row[]
   warehouses: Row[]
 }
 
@@ -498,6 +500,7 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     salePayments,
     movements,
     profiles,
+    profileDirectory,
     warehouses
   ] = await Promise.all([
     supabase.from('products').select(PRODUCT_SELECT).is('deleted_at', null).order('name'),
@@ -518,6 +521,7 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     supabase.from('sale_payments').select('*'),
     supabase.from('inventory_movements').select('*').order('created_at', { ascending: false }).limit(500),
     supabase.from('profiles').select('*').is('deleted_at', null).order('full_name'),
+    supabase.from('v_profile_directory').select('*').order('full_name'),
     supabase.from('warehouses').select('id, code, name, is_default, deleted_at').order('code')
   ])
 
@@ -540,6 +544,7 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     salePayments,
     movements,
     profiles,
+    profileDirectory,
     warehouses
   ]
   const failed = results.find((result) => result.error)
@@ -564,6 +569,7 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     salePayments: salePayments.data ?? [],
     movements: movements.data ?? [],
     profiles: profiles.data ?? [],
+    profileDirectory: profileDirectory.data ?? [],
     warehouses: warehouses.data ?? []
   }
 }
@@ -578,7 +584,7 @@ export async function fetchSaleById(id: string): Promise<Sale | null> {
     supabase.from('sale_items').select('*').eq('sale_id', id),
     supabase.from('sale_payments').select('*').eq('sale_id', id),
     supabase.from('payment_methods').select('*'),
-    supabase.from('profiles').select('*').eq('id', sale.user_id ?? '').maybeSingle()
+    supabase.from('v_profile_directory').select('*').eq('id', sale.user_id ?? '').maybeSingle()
   ])
 
   const failed = [items, payments, methods, profile].find((result) => result.error)
@@ -635,7 +641,7 @@ export function mapSnapshot(raw: RawSnapshot, warehouseId?: string): Snapshot {
   const suppliers = mapSuppliers(raw.suppliers)
   const users = mapProfiles(raw.profiles)
   const purchases = mapPurchases(raw.purchaseOrders, raw.purchaseItems, raw.suppliers)
-  const expenses = mapExpenses(raw.expenses, raw.expenseCategories, raw.paymentMethods, raw.profiles)
+  const expenses = mapExpenses(raw.expenses, raw.expenseCategories, raw.paymentMethods, raw.profileDirectory)
   const returns = mapSaleReturns(
     raw.saleReturns,
     raw.saleReturnItems,
@@ -643,15 +649,15 @@ export function mapSnapshot(raw: RawSnapshot, warehouseId?: string): Snapshot {
     raw.products,
     raw.customers
   )
-  const closings = mapCashSessions(raw.cashSessions, raw.cashRegisters, raw.profiles)
+  const closings = mapCashSessions(raw.cashSessions, raw.cashRegisters, raw.profileDirectory)
   const sales = mapSales(
     raw.sales,
     raw.saleItems,
     raw.salePayments,
     raw.paymentMethods,
-    raw.profiles
+    raw.profileDirectory
   )
-  const movements = mapMovements(raw.movements, raw.products, raw.profiles)
+  const movements = mapMovements(raw.movements, raw.products, raw.profileDirectory)
 
   return {
     products,
