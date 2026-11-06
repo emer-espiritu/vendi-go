@@ -188,6 +188,7 @@ No se guarda estado crítico solo en el navegador: precios, stock, totales, impu
 | `20261031001300_profile_privilege_guard.sql` | Bloquea la auto-escalada de rol/estado en `profiles` |
 | `20261031001400_product_price_sync.sql` | Sincroniza `products.price` con la presentación base en ambos sentidos |
 | `20261031001500_harden_new_user_profile.sql` | `handle_new_user` ignora el rol del metadata de Auth y crea el perfil inactivo |
+| `20261031001600_restrict_function_execute.sql` | Revoca el `execute` masivo de funciones y concede solo las RPC de la aplicación |
 
 ### Tablas principales
 
