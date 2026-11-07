@@ -20,6 +20,7 @@ import {
   BASE_UNIT_LABELS,
   basePresentation,
   baseQty,
+  formatStock,
   productPresentations,
   presentationByBarcode,
   presentationStep,
@@ -444,9 +445,7 @@ export default function PosPage() {
                           </span>
                         </span>
                         <Badge tone={stockTone(product)} className="text-[9px]">
-                          {product.stock <= 0
-                            ? "Agotado"
-                            : `${formatNumber(product.stock, product.stock % 1 === 0 ? 0 : 1)} ${BASE_UNIT_LABELS[product.baseUnit]}`}
+                          {product.stock <= 0 ? "Agotado" : formatStock(product)}
                         </Badge>
                       </div>
                     </div>

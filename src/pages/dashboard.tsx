@@ -30,6 +30,7 @@ import { PAYMENT_LABELS } from '@/lib/sales'
 import { useAuth } from '@/store/auth'
 import { useDemoStore } from '@/store/demo-store'
 import { cn, daysUntil, formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils'
+import { formatStock } from '@/lib/presentations'
 import { CategoryDonut, PerformanceChart, ProfitLineChart, SalesAreaChart } from '@/components/charts'
 import {
   Badge,
@@ -338,7 +339,7 @@ export default function DashboardPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[11px] font-semibold text-foreground">{product.name}</p>
                     <p className="text-[10px] text-muted">
-                      Stock {formatNumber(product.stock, 1)} / mínimo {formatNumber(product.minStock, 1)}
+                      Stock {formatStock(product)} / mínimo {formatNumber(product.minStock, 1)}
                     </p>
                   </div>
                   <Badge tone={product.stock === 0 ? 'danger' : 'warning'}>{product.stock === 0 ? 'Agotado' : 'Bajo'}</Badge>

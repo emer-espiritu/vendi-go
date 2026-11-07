@@ -39,6 +39,7 @@ import {
   BASE_UNIT_LABELS,
   PURCHASE_UNIT_LABELS,
   buildPresentations,
+  formatStock,
 } from "@/lib/presentations";
 import {
   Badge,
@@ -776,8 +777,7 @@ export default function ProductsPage() {
         return (
           <div className="flex flex-col items-end gap-1">
             <span className="text-xs font-semibold text-foreground">
-              {formatNumber(product.stock, 2)}{" "}
-              {BASE_UNIT_LABELS[product.baseUnit]}
+              {formatStock(product)}
             </span>
             <Badge tone={status.tone}>{status.label}</Badge>
           </div>
@@ -1022,8 +1022,7 @@ export default function ProductsPage() {
                     </div>
                     <div className="shrink-0 text-right">
                       <p className="text-xs font-semibold text-foreground">
-                        {formatNumber(product.stock, 2)}{" "}
-                        {BASE_UNIT_LABELS[product.baseUnit]}
+                        {formatStock(product)}
                       </p>
                       <p className="text-[10px] text-muted">
                         Mín. {formatNumber(product.minStock, 2)}

@@ -4,11 +4,19 @@ import {
   PURCHASE_UNIT_LABELS,
   baseQty,
   buildPresentations,
+  formatStock,
   presentationStep,
   unitPrice
 } from '../src/lib/presentations'
 import { computeTotals } from '../src/lib/sales'
-import type { CartLine, Product } from '../src/types'
+import type { BaseUnit, CartLine, Presentation, Product, PurchaseUnit } from '../src/types'
+
+const stockProduct = (
+  stock: number,
+  baseUnit: BaseUnit,
+  presentations: Presentation[],
+  purchaseUnit?: PurchaseUnit
+): Product => ({ stock, baseUnit, presentations, purchaseUnit }) as Product
 
 const cartLine = (price: number, factor: number, qty: number, cost: number, discount = 0): CartLine => ({
   product: { cost } as Product,
@@ -77,6 +85,37 @@ describe('equivalencias', () => {
     expect(presentationStep('kg', { id: 'saco', label: 'SACO', factor: 50, price: 152 })).toBe(1)
     expect(presentationStep('und', { id: 'base', label: 'UND', factor: 1, price: 4.9 })).toBe(1)
     expect(presentationStep('und', { id: 'caja', label: 'CAJA', factor: 12, price: 55.86 })).toBe(1)
+  })
+})
+
+describe('formatStock', () => {
+  const caja12 = buildPresentations({ baseUnit: 'und', purchaseUnit: 'caja', packSize: 12, basePrice: 4.9 })
+  const saco50 = buildPresentations({ baseUnit: 'kg', purchaseUnit: 'saco', packSize: 50, basePrice: 3.2 })
+
+  test('expresa el stock en la unidad de empaque cuando alcanza un pack completo', () => {
+    expect(formatStock(stockProduct(120, 'und', caja12, 'caja'))).toBe('10 CAJA')
+  })
+
+  test('agrega el remanente en unidad base', () => {
+    expect(formatStock(stockProduct(130, 'und', caja12, 'caja'))).toBe('10 CAJA + 10 UND')
+    expect(formatStock(stockProduct(130, 'kg', saco50, 'saco'))).toBe('2 SACO + 30 KG')
+  })
+
+  test('si no alcanza un pack muestra la unidad base', () => {
+    expect(formatStock(stockProduct(5, 'und', caja12, 'caja'))).toBe('5 UND')
+    expect(formatStock(stockProduct(0, 'und', caja12, 'caja'))).toBe('0 UND')
+  })
+
+  test('respeta etiquetas personalizadas como PLANCHA, TIRA o DISPLAY', () => {
+    const display = buildPresentations({ baseUnit: 'und', purchaseUnit: 'caja', packSize: 10, basePrice: 1 })
+    const custom = display.map((item) => (item.id === 'caja' ? { ...item, label: 'DISPLAY' } : item))
+    expect(formatStock(stockProduct(25, 'und', custom, 'caja'))).toBe('2 DISPLAY + 5 UND')
+  })
+
+  test('prioriza el empaque más grande aunque no sea la unidad de compra', () => {
+    const base = buildPresentations({ baseUnit: 'und', purchaseUnit: 'caja', packSize: 6, basePrice: 1 })
+    const plancha: Presentation = { id: 'plancha', label: 'PLANCHA', factor: 30, price: 25 }
+    expect(formatStock(stockProduct(65, 'und', [plancha, ...base], 'caja'))).toBe('2 PLANCHA + 5 UND')
   })
 })
 

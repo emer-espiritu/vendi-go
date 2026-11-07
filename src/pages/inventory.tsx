@@ -15,7 +15,7 @@ import type { Product, StockMovement } from '@/types'
 import { useDemoStore } from '@/store/demo-store'
 import { useToast } from '@/store/toast'
 import { cn, daysUntil, formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils'
-import { BASE_UNIT_LABELS } from '@/lib/presentations'
+import { BASE_UNIT_LABELS, formatStock } from '@/lib/presentations'
 import {
   Badge,
   Button,
@@ -283,8 +283,8 @@ export default function InventoryPage() {
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold text-foreground">{product.name}</p>
           <p className="text-[10px] text-muted">
-            Stock {formatNumber(product.stock, 2)} {BASE_UNIT_LABELS[product.baseUnit]} · mínimo{' '}
-            {formatNumber(product.minStock, 2)}
+            Stock {formatStock(product)} · mínimo {formatNumber(product.minStock, 2)}{' '}
+            {BASE_UNIT_LABELS[product.baseUnit]}
           </p>
         </div>
         <Badge tone={status.tone}>{status.label}</Badge>
@@ -335,12 +335,7 @@ export default function InventoryPage() {
       header: 'Stock',
       align: 'right',
       sortValue: (product) => product.stock,
-      render: (product) => (
-        <span className="text-xs font-semibold text-foreground">
-          {formatNumber(product.stock, 2)}{' '}
-          <span className="text-[10px] font-normal text-muted">{BASE_UNIT_LABELS[product.baseUnit]}</span>
-        </span>
-      )
+      render: (product) => <span className="text-xs font-semibold text-foreground">{formatStock(product)}</span>
     },
     {
       key: 'minStock',
@@ -447,12 +442,7 @@ export default function InventoryPage() {
       header: 'Stock',
       align: 'right',
       sortValue: (row) => row.product.stock,
-      render: (row) => (
-        <span className="text-xs font-semibold text-foreground">
-          {formatNumber(row.product.stock, 2)}{' '}
-          <span className="text-[10px] font-normal text-muted">{BASE_UNIT_LABELS[row.product.baseUnit]}</span>
-        </span>
-      )
+      render: (row) => <span className="text-xs font-semibold text-foreground">{formatStock(row.product)}</span>
     }
   ]
 
@@ -771,7 +761,7 @@ export default function InventoryPage() {
               <option value="">Selecciona un producto</option>
               {products.map((product) => (
                 <option key={product.id} value={product.id}>
-                  {product.name} · stock {formatNumber(product.stock, 2)} {BASE_UNIT_LABELS[product.baseUnit]}
+                  {product.name} · stock {formatStock(product)}
                 </option>
               ))}
             </Select>
@@ -794,7 +784,7 @@ export default function InventoryPage() {
               error={errors.qty?.message}
               hint={
                 selectedProduct
-                  ? `Stock actual: ${formatNumber(selectedProduct.stock, 2)} ${BASE_UNIT_LABELS[selectedProduct.baseUnit]}.`
+                  ? `Stock actual: ${formatStock(selectedProduct)}.`
                   : 'Selecciona un producto para ver su stock disponible.'
               }
             >

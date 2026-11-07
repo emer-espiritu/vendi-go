@@ -1,5 +1,5 @@
 import type { BaseUnit, Presentation, Product, PurchaseUnit } from '@/types'
-import { round2 } from './utils'
+import { formatNumber, round2 } from './utils'
 
 export const BASE_UNIT_LABELS: Record<BaseUnit, string> = {
   und: 'UND',
@@ -110,6 +110,44 @@ export function productPresentations(product: Product): Presentation[] {
 /** Busca una presentación por id o, si no existe, cae a la base. */
 export function presentationById(product: Product, id: string): Presentation {
   return productPresentations(product).find((item) => item.id === id) ?? basePresentation(product)
+}
+
+/** Presentación de empaque más grande del producto, si el stock se maneja en packs. */
+function packPresentation(product: Product): Presentation | undefined {
+  const packs = productPresentations(product).filter((item) => item.factor > 1)
+  if (packs.length === 0) return undefined
+
+  // El pack más grande manda; ante empate (CAJA vs DOCENA) gana la unidad de compra.
+  return [...packs].sort((a, b) => {
+    if (b.factor !== a.factor) return b.factor - a.factor
+    if (a.id === product.purchaseUnit) return -1
+    if (b.id === product.purchaseUnit) return 1
+    return 0
+  })[0]
+}
+
+/**
+ * Descompone el stock (siempre en unidad base) en la presentación de empaque
+ * más grande y el remanente en unidad base. Ej.: 150 kg con SACO de 50 kg
+ * devuelve "3 SACO"; 130 kg devuelve "2 SACO + 30 KG".
+ */
+export function formatStock(product: Product): string {
+  const stock = Math.max(0, product.stock)
+  const baseLabel = BASE_UNIT_LABELS[product.baseUnit] ?? 'UND'
+  const pack = packPresentation(product)
+
+  if (!pack) return `${formatNumber(stock, stock % 1 === 0 ? 0 : 2)} ${baseLabel}`
+
+  const packs = Math.floor((stock + 1e-9) / pack.factor)
+  const remainder = Math.max(0, round2(stock - packs * pack.factor))
+  const parts: string[] = []
+
+  if (packs > 0) parts.push(`${formatNumber(packs, 0)} ${pack.label}`)
+  if (remainder > 0 || parts.length === 0) {
+    parts.push(`${formatNumber(remainder, remainder % 1 === 0 ? 0 : 2)} ${baseLabel}`)
+  }
+
+  return parts.join(' + ')
 }
 
 /** Busca una presentación por código de barras, incluyendo el código base del producto. */
