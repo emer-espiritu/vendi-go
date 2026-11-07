@@ -26,7 +26,7 @@ export interface Category {
 export const BASE_UNITS = ['und', 'kg', 'lt', 'ml', 'g'] as const
 export type BaseUnit = (typeof BASE_UNITS)[number]
 
-export const PURCHASE_UNITS = ['caja', 'saco', 'bolsa', 'paquete'] as const
+export const PURCHASE_UNITS = ['caja', 'saco', 'bolsa', 'paquete', 'plancha', 'tira', 'display'] as const
 export type PurchaseUnit = (typeof PURCHASE_UNITS)[number]
 
 export interface Presentation {

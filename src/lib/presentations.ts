@@ -13,7 +13,10 @@ export const PURCHASE_UNIT_LABELS: Record<PurchaseUnit, string> = {
   caja: 'CAJA',
   saco: 'SACO',
   bolsa: 'BOLSA',
-  paquete: 'PAQUETE'
+  paquete: 'PAQUETE',
+  plancha: 'PLANCHA',
+  tira: 'TIRA',
+  display: 'DISPLAY'
 }
 
 /** Unidades base que admiten cantidades fraccionarias (peso/volumen). */

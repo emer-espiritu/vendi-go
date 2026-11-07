@@ -67,7 +67,7 @@ const SKU_PATTERN = /^[A-Z]{3}-[A-Z]{3}-[0-9]{3,4}$/;
 const BARCODE_PATTERN = /^\d{8,14}$/;
 
 const BASE_UNIT_OPTIONS = ["und", "kg", "lt", "ml", "g"] as const;
-const PURCHASE_UNIT_OPTIONS = ["caja", "saco", "bolsa", "paquete"] as const;
+const PURCHASE_UNIT_OPTIONS = ["caja", "saco", "bolsa", "paquete", "plancha", "tira", "display"] as const;
 
 type StatusFilter = "todos" | "activos" | "inactivos";
 
@@ -1273,7 +1273,7 @@ export default function ProductsPage() {
 
             <Field
               label="Unidad de compra"
-              hint="Opcional. Permite vender el producto por caja, saco, bolsa o paquete."
+              hint="Opcional. Permite vender el producto por caja, saco, bolsa, paquete, plancha, tira o display."
             >
               <Select {...register("purchaseUnit")}>
                 <option value="">Sin unidad de compra</option>

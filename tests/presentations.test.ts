@@ -65,6 +65,9 @@ describe('buildPresentations', () => {
     expect(BASE_UNIT_LABELS.lt).toBe('LT')
     expect(PURCHASE_UNIT_LABELS.caja).toBe('CAJA')
     expect(PURCHASE_UNIT_LABELS.saco).toBe('SACO')
+    expect(PURCHASE_UNIT_LABELS.plancha).toBe('PLANCHA')
+    expect(PURCHASE_UNIT_LABELS.tira).toBe('TIRA')
+    expect(PURCHASE_UNIT_LABELS.display).toBe('DISPLAY')
   })
 })
 
