@@ -133,32 +133,43 @@ async function syncPresentations(productId: string, presentations: Presentation[
   }
 }
 
-/** Ajusta el inventario del almacén por defecto usando la RPC autorizada. */
+/**
+ * Ajusta el inventario de un almacén usando la RPC autorizada.
+ *
+ * El almacén debe ser el mismo que la UI muestra como stock del producto. Si se
+ * omite, la RPC cae al almacén por defecto.
+ */
 export async function adjustStock(
   productId: string,
   delta: number,
-  reason: string
+  reason: string,
+  warehouseId?: string
 ): Promise<void> {
   if (!delta) return
   const { error } = await supabase.rpc('create_stock_adjustment', {
     p_product_id: productId,
     p_qty: delta,
-    p_reason: reason
+    p_reason: reason,
+    p_warehouse_id: warehouseId
   })
   if (error) fail(error)
 }
 
-export async function createProduct(input: ProductInput): Promise<string> {
+export async function createProduct(input: ProductInput, warehouseId?: string): Promise<string> {
   const created = unwrap(
     await supabase.from('products').insert(productColumns(input)).select('id').single()
   ) as { id: string }
 
   await syncPresentations(created.id, input.presentations)
-  await adjustStock(created.id, input.stock, 'Stock inicial del producto')
+  await adjustStock(created.id, input.stock, 'Stock inicial del producto', warehouseId)
   return created.id
 }
 
-export async function updateProduct(id: string, patch: ProductInput): Promise<void> {
+export async function updateProduct(
+  id: string,
+  patch: ProductInput,
+  warehouseId?: string
+): Promise<void> {
   const { data: current, error } = await supabase
     .from('products')
     .select('id')
@@ -167,17 +178,18 @@ export async function updateProduct(id: string, patch: ProductInput): Promise<vo
   if (error) fail(error)
   if (!current) throw new Error('El producto ya no existe.')
 
-  const delta = patch.stock - (await currentStock(id))
+  // El stock del formulario es el del almacén activo, no la suma de todos.
+  const delta = patch.stock - (await currentStock(id, warehouseId))
 
   unwrap(await supabase.from('products').update(productColumns(patch)).eq('id', id).select('id'))
   await syncPresentations(id, patch.presentations)
-  await adjustStock(id, delta, 'Actualización de producto desde el catálogo')
+  await adjustStock(id, delta, 'Actualización de producto desde el catálogo', warehouseId)
 }
 
-async function currentStock(productId: string): Promise<number> {
-  const rows = unwrap(
-    await supabase.from('inventory').select('stock').eq('product_id', productId)
-  ) as { stock: number }[]
+async function currentStock(productId: string, warehouseId?: string): Promise<number> {
+  let query = supabase.from('inventory').select('stock').eq('product_id', productId)
+  if (warehouseId) query = query.eq('warehouse_id', warehouseId)
+  const rows = unwrap(await query) as { stock: number }[]
   return rows.reduce((total, row) => total + Number(row.stock ?? 0), 0)
 }
 

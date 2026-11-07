@@ -53,6 +53,8 @@ interface DataState extends Snapshot {
   ready: boolean
   loading: boolean
   error: string | null
+  /** Almacén activo con el que se mapea `product.stock` y se ajusta inventario. */
+  warehouseId?: string
   registers: CashRegisterOption[]
   readNotificationIds: string[]
   refresh: () => Promise<void>
@@ -108,10 +110,12 @@ let inFlight: Promise<void> | null = null
 export const useDataStore = create<DataState>((set, get) => {
   const load = async () => {
     const raw = await fetchSnapshot()
-    const snapshot = mapSnapshot(raw, resolveWarehouseId(raw, useAuthStore.getState().user?.id))
+    const warehouseId = resolveWarehouseId(raw, useAuthStore.getState().user?.id)
+    const snapshot = mapSnapshot(raw, warehouseId)
     const registers = await fetchCashRegisters().catch(() => get().registers)
     set({
       ...snapshot,
+      warehouseId,
       registers,
       notifications: applyReadFlags(snapshot.notifications, get().readNotificationIds),
       ready: true,
@@ -149,14 +153,22 @@ export const useDataStore = create<DataState>((set, get) => {
     refresh,
 
     reset: () =>
-      set({ ...EMPTY, registers: [], readNotificationIds: [], ready: false, loading: true, error: null }),
+      set({
+        ...EMPTY,
+        warehouseId: undefined,
+        registers: [],
+        readNotificationIds: [],
+        ready: false,
+        loading: true,
+        error: null
+      }),
 
     createProduct: (input) =>
       mutate(async () => {
         const image = input.image?.startsWith('data:')
           ? await uploadProductImage(input.image)
           : input.image
-        await createProductRow({ ...input, image })
+        await createProductRow({ ...input, image }, get().warehouseId)
       }),
 
     updateProduct: (id, patch) =>
@@ -164,14 +176,15 @@ export const useDataStore = create<DataState>((set, get) => {
         const image = patch.image?.startsWith('data:')
           ? await uploadProductImage(patch.image)
           : patch.image
-        await updateProductRow(id, { ...patch, image })
+        await updateProductRow(id, { ...patch, image }, get().warehouseId)
       }),
 
     deleteProduct: (id) => mutate(() => deleteProductRow(id)),
 
     addCategory: (name, emoji, color) => mutate(() => createCategoryRow(name, emoji, color)),
 
-    adjustStock: (productId, delta, reason) => mutate(() => adjustStockRpc(productId, delta, reason)),
+    adjustStock: (productId, delta, reason) =>
+      mutate(() => adjustStockRpc(productId, delta, reason, get().warehouseId)),
 
     createCustomer: (input) => mutate(() => createCustomerRow(input)),
     updateCustomer: (id, patch) => mutate(() => updateCustomerRow(id, patch)),
