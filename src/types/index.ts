@@ -197,6 +197,10 @@ export interface ProductReturn {
   saleCode: string
   customerName: string
   productName: string
+  /** Producto devuelto; permite cruzar la devolución con el ítem vendido. */
+  productId?: string
+  /** Fila de `sale_items` devuelta; base para calcular lo ya devuelto. */
+  saleItemId?: string
   qty: number
   amount: number
   reason: string

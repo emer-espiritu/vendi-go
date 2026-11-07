@@ -18,10 +18,11 @@ export type PurchaseInput = Omit<Purchase, 'id' | 'code' | 'status'> & {
   code?: string
   status?: Purchase['status']
 }
-export type ReturnInput = Omit<ProductReturn, 'id' | 'code'> & {
+export type ReturnInput = Omit<ProductReturn, 'id' | 'code' | 'productId' | 'saleItemId'> & {
   code?: string
   saleId: string
   saleItemId: string
+  productId?: string
 }
 
 export interface CreateSaleInput {

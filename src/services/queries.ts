@@ -262,6 +262,8 @@ export function mapSaleReturns(
         str(customerMap.get(str(row.customer_id))?.name) ||
         str(saleMap.get(str(row.sale_id))?.customer_name, 'Clientes varios'),
       productName,
+      productId: first ? optionalStr(first.product_id) : undefined,
+      saleItemId: first ? optionalStr(first.sale_item_id) : undefined,
       qty: first ? num(first.qty) : 0,
       amount: num(row.total),
       reason: str(row.reason),

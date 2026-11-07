@@ -61,14 +61,14 @@ type StatusFilter = (typeof STATUS_FILTERS)[number]['value']
 
 const returnSchema = z.object({
   saleCode: z.string().min(1, 'Selecciona el comprobante asociado a la devolución.'),
-  productId: z.string().min(1, 'Selecciona el producto devuelto.'),
+  saleItemId: z.string().min(1, 'Selecciona el producto devuelto.'),
   qty: z
     .string()
     .min(1, 'Ingresa la cantidad devuelta.')
     .refine((value) => Number.isFinite(Number(value)) && Number(value) > 0, 'La cantidad debe ser mayor a cero.'),
   amount: z
     .string()
-    .min(1, 'Ingresa el monto a reembolsar.')
+    .min(1, 'El monto se calcula según el precio vendido.')
     .refine((value) => Number.isFinite(Number(value)) && Number(value) >= 0, 'El monto no puede ser negativo.'),
   reason: z.string().min(1, 'Selecciona o escribe el motivo de la devolución.'),
   detail: z.string().max(240, 'Máximo 240 caracteres.').optional()
@@ -89,7 +89,7 @@ function statusLabel(status: ProductReturn['status']) {
 }
 
 export default function ReturnsPage() {
-  const { returns, sales, products, createReturn, approveReturn } = useDemoStore()
+  const { returns, sales, createReturn, approveReturn } = useDemoStore()
   const { toast } = useToast()
 
   const [search, setSearch] = useState('')
@@ -104,16 +104,34 @@ export default function ReturnsPage() {
     reset,
     watch,
     setValue,
+    getValues,
     formState: { errors, isSubmitting }
   } = useForm<ReturnValues>({
     resolver: zodResolver(returnSchema),
-    defaultValues: { saleCode: '', productId: '', qty: '1', amount: '', reason: '', detail: '' }
+    defaultValues: { saleCode: '', saleItemId: '', qty: '1', amount: '', reason: '', detail: '' }
   })
 
-  const selectedProductId = watch('productId')
-  const selectedQty = watch('qty')
+  const selectedSaleItemId = watch('saleItemId')
   const selectedSaleCode = watch('saleCode')
-  const maxQty = products.find((product) => product.id === selectedProductId)?.stock ?? 0
+  const selectedSale = useMemo(
+    () => sales.find((sale) => sale.code === selectedSaleCode),
+    [sales, selectedSaleCode]
+  )
+  const saleItems = useMemo(
+    () => (selectedSale?.items ?? []).filter((item) => Boolean(item.id)),
+    [selectedSale]
+  )
+  const selectedSaleItem = saleItems.find((item) => item.id === selectedSaleItemId)
+  /** Lo vendido menos lo ya devuelto en solicitudes no rechazadas. */
+  const alreadyReturned = returns
+    .filter((item) => item.saleItemId === selectedSaleItemId && item.status !== 'rechazada')
+    .reduce((sum, item) => sum + item.qty, 0)
+  const maxQty = Math.max(0, (selectedSaleItem?.qty ?? 0) - alreadyReturned)
+  /** Precio efectivo por unidad del renglón vendido (con su descuento prorrateado). */
+  const refundUnitPrice =
+    selectedSaleItem && selectedSaleItem.qty > 0
+      ? selectedSaleItem.price - selectedSaleItem.discount / selectedSaleItem.qty
+      : 0
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -239,10 +257,9 @@ export default function ReturnsPage() {
   ]
 
   const onSubmit = async (values: ReturnValues) => {
-    const product = products.find((item) => item.id === values.productId)
     const sale = sales.find((item) => item.code === values.saleCode)
-    const saleItem = sale?.items.find((item) => item.productId === values.productId)
-    if (!product || !sale || !saleItem?.id) {
+    const saleItem = sale?.items.find((item) => item.id === values.saleItemId)
+    if (!sale || !saleItem?.id) {
       toast({
         title: 'Datos incompletos',
         description: 'El producto debe pertenecer al comprobante seleccionado.',
@@ -253,16 +270,8 @@ export default function ReturnsPage() {
     const qty = Number(values.qty)
     if (qty > maxQty) {
       toast({
-        title: 'Cantidad mayor al stock',
-        description: `Solo hay ${formatNumber(maxQty, 2)} unidades de ${product.name} en inventario.`,
-        tone: 'error'
-      })
-      return
-    }
-    if (qty > saleItem.qty) {
-      toast({
-        title: 'Cantidad mayor a la vendida',
-        description: `En ${sale.code} solo se vendieron ${formatNumber(saleItem.qty, 2)} de ${product.name}.`,
+        title: 'Cantidad mayor a la disponible',
+        description: `De ${saleItem.name} se vendieron ${formatNumber(saleItem.qty, 2)} y quedan ${formatNumber(maxQty, 2)} por devolver en ${sale.code}.`,
         tone: 'error'
       })
       return
@@ -272,7 +281,8 @@ export default function ReturnsPage() {
         date: toISODate(new Date()),
         saleCode: sale.code,
         customerName: sale.customerName,
-        productName: product.name,
+        productName: saleItem.name,
+        productId: saleItem.productId,
         qty,
         amount: round2(Number(values.amount)),
         reason: values.detail?.trim() ? `${values.reason} · ${values.detail.trim()}` : values.reason,
@@ -315,7 +325,7 @@ export default function ReturnsPage() {
           <Button
             icon={<Plus className="size-4" />}
             onClick={() => {
-              reset({ saleCode: '', productId: '', qty: '1', amount: '', reason: '', detail: '' })
+              reset({ saleCode: '', saleItemId: '', qty: '1', amount: '', reason: '', detail: '' })
               setCreateOpen(true)
             }}
           >
@@ -442,7 +452,16 @@ export default function ReturnsPage() {
         <form id="return-form" onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Comprobante" required error={errors.saleCode?.message}>
-              <Select {...register('saleCode')} invalid={Boolean(errors.saleCode)}>
+              <Select
+                {...register('saleCode')}
+                invalid={Boolean(errors.saleCode)}
+                onChange={(event) => {
+                  register('saleCode').onChange(event)
+                  setValue('saleItemId', '')
+                  setValue('qty', '1')
+                  setValue('amount', '')
+                }}
+              >
                 <option value="">Selecciona un comprobante</option>
                 {sales.slice(0, 60).map((sale) => (
                   <option key={sale.id} value={sale.code}>
@@ -452,21 +471,34 @@ export default function ReturnsPage() {
               </Select>
             </Field>
 
-            <Field label="Producto" required error={errors.productId?.message} hint={`Stock actual: ${formatNumber(maxQty, 2)}`}>
+            <Field
+              label="Producto"
+              required
+              error={errors.saleItemId?.message}
+              hint={
+                selectedSaleItem
+                  ? `Vendido: ${formatNumber(selectedSaleItem.qty, 2)} · Ya devuelto: ${formatNumber(alreadyReturned, 2)} · Disponible: ${formatNumber(maxQty, 2)}`
+                  : 'Selecciona primero un comprobante'
+              }
+            >
               <Select
-                {...register('productId')}
-                invalid={Boolean(errors.productId)}
+                {...register('saleItemId')}
+                invalid={Boolean(errors.saleItemId)}
+                disabled={!selectedSale}
                 onChange={(event) => {
-                  register('productId').onChange(event)
-                  const product = products.find((item) => item.id === event.target.value)
-                  const qty = Number(selectedQty) || 1
-                  if (product) setValue('amount', round2(product.price * qty).toFixed(2))
+                  register('saleItemId').onChange(event)
+                  const item = saleItems.find((saleItem) => saleItem.id === event.target.value)
+                  const qty = Number(getValues('qty'))
+                  if (item && Number.isFinite(qty) && qty > 0) {
+                    const unit = item.qty > 0 ? item.price - item.discount / item.qty : item.price
+                    setValue('amount', round2(unit * qty).toFixed(2))
+                  }
                 }}
               >
-                <option value="">Selecciona un producto</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name} · {product.sku}
+                <option value="">{selectedSale ? 'Selecciona un producto del comprobante' : 'Selecciona un comprobante'}</option>
+                {saleItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} · {item.presentationLabel} · {formatNumber(item.qty, 2)} vendidas
                   </option>
                 ))}
               </Select>
@@ -481,17 +513,21 @@ export default function ReturnsPage() {
                 invalid={Boolean(errors.qty)}
                 onChange={(event) => {
                   register('qty').onChange(event)
-                  const product = products.find((item) => item.id === selectedProductId)
-                  if (product) {
-                    const qty = Number(event.target.value)
-                    if (Number.isFinite(qty) && qty > 0) setValue('amount', round2(product.price * qty).toFixed(2))
+                  const qty = Number(event.target.value)
+                  if (selectedSaleItem && Number.isFinite(qty) && qty > 0) {
+                    setValue('amount', round2(refundUnitPrice * qty).toFixed(2))
                   }
                 }}
               />
             </Field>
 
-            <Field label="Monto a reembolsar" required error={errors.amount?.message} hint="Se sugiere según el precio de lista.">
-              <Input {...register('amount')} type="number" min={0} step="0.1" invalid={Boolean(errors.amount)} />
+            <Field
+              label="Monto a reembolsar"
+              required
+              error={errors.amount?.message}
+              hint="Calculado con el precio del comprobante."
+            >
+              <Input {...register('amount')} type="number" min={0} step="0.1" readOnly invalid={Boolean(errors.amount)} />
             </Field>
 
             <Field label="Motivo" required error={errors.reason?.message} className="sm:col-span-2">
