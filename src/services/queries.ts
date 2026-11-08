@@ -495,6 +495,31 @@ export function buildNotifications(
 const PRODUCT_SELECT =
   '*, product_presentations(id, label, factor, price, barcode, is_base, sort_order, active), inventory(stock, warehouse_id)'
 
+/** Tamaño de página de PostgREST (`max-rows` por defecto es 1000). */
+const PAGE_SIZE = 1000
+/** Cantidad de movimientos de inventario que muestra el historial reciente. */
+const MOVEMENTS_LIMIT = 500
+
+type QueryPage = { data: unknown[] | null; error: { message: string } | null }
+
+/**
+ * PostgREST corta cada respuesta en `max-rows` (1000) sin avisar. Sin paginar,
+ * las tablas grandes pierden filas en silencio; acá se piden páginas hasta la
+ * última, con un orden estable (`id`) para no repetir ni saltear registros.
+ */
+async function fetchAllRows(
+  build: (from: number, to: number) => PromiseLike<QueryPage>
+): Promise<Row[]> {
+  const rows: Row[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await build(from, from + PAGE_SIZE - 1)
+    if (error) throw new Error(error.message)
+    const page = data ?? []
+    rows.push(...(page as Row[]))
+    if (page.length < PAGE_SIZE) return rows
+  }
+}
+
 export async function fetchSnapshot(): Promise<RawSnapshot> {
   const [
     products,
@@ -518,29 +543,103 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     profileDirectory,
     warehouses
   ] = await Promise.all([
-    supabase.from('products').select(PRODUCT_SELECT).is('deleted_at', null).order('name'),
-    supabase.from('categories').select('*').is('deleted_at', null).order('name'),
-    supabase.from('customers').select('*').is('deleted_at', null).order('name'),
-    supabase.from('suppliers').select('*').is('deleted_at', null).order('name'),
-    supabase.from('purchase_orders').select('*').is('deleted_at', null).order('date', { ascending: false }),
-    supabase.from('purchase_items').select('*'),
-    supabase.from('expenses').select('*').is('deleted_at', null).order('date', { ascending: false }),
-    supabase.from('expense_categories').select('*').order('name'),
-    supabase.from('payment_methods').select('*').order('name'),
-    supabase.from('sale_returns').select('*').order('date', { ascending: false }),
-    supabase.from('sale_return_items').select('*'),
-    supabase.from('cash_sessions').select('*').order('opened_at', { ascending: false }),
-    supabase.from('cash_registers').select('*').order('code'),
-    supabase.from('sales').select('*').is('deleted_at', null).order('date', { ascending: false }).limit(1000),
-    supabase.from('sale_items').select('*'),
-    supabase.from('sale_payments').select('*'),
-    supabase.from('inventory_movements').select('*').order('created_at', { ascending: false }).limit(500),
-    supabase.from('profiles').select('*').is('deleted_at', null).order('full_name'),
-    supabase.from('v_profile_directory').select('*').order('full_name'),
-    supabase.from('warehouses').select('id, code, name, is_default, deleted_at').order('code')
+    fetchAllRows((from, to) =>
+      supabase
+        .from('products')
+        .select(PRODUCT_SELECT)
+        .is('deleted_at', null)
+        .order('name')
+        .order('id')
+        .range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('categories').select('*').is('deleted_at', null).order('name').order('id').range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('customers').select('*').is('deleted_at', null).order('name').order('id').range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('suppliers').select('*').is('deleted_at', null).order('name').order('id').range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase
+        .from('purchase_orders')
+        .select('*')
+        .is('deleted_at', null)
+        .order('date', { ascending: false })
+        .order('id')
+        .range(from, to)
+    ),
+    fetchAllRows((from, to) => supabase.from('purchase_items').select('*').order('id').range(from, to)),
+    fetchAllRows((from, to) =>
+      supabase
+        .from('expenses')
+        .select('*')
+        .is('deleted_at', null)
+        .order('date', { ascending: false })
+        .order('id')
+        .range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('expense_categories').select('*').order('name').order('id').range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('payment_methods').select('*').order('name').order('id').range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('sale_returns').select('*').order('date', { ascending: false }).order('id').range(from, to)
+    ),
+    fetchAllRows((from, to) => supabase.from('sale_return_items').select('*').order('id').range(from, to)),
+    fetchAllRows((from, to) =>
+      supabase
+        .from('cash_sessions')
+        .select('*')
+        .order('opened_at', { ascending: false })
+        .order('id')
+        .range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('cash_registers').select('*').order('code').order('id').range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase
+        .from('sales')
+        .select('*')
+        .is('deleted_at', null)
+        .order('date', { ascending: false })
+        .order('id')
+        .range(from, to)
+    ),
+    fetchAllRows((from, to) => supabase.from('sale_items').select('*').order('id').range(from, to)),
+    fetchAllRows((from, to) => supabase.from('sale_payments').select('*').order('id').range(from, to)),
+    // Los movimientos son un log que crece sin límite: se muestra solo el historial reciente.
+    supabase
+      .from('inventory_movements')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .order('id')
+      .limit(MOVEMENTS_LIMIT)
+      .then((result) => {
+        if (result.error) throw new Error(result.error.message)
+        return (result.data ?? []) as Row[]
+      }),
+    fetchAllRows((from, to) =>
+      supabase.from('profiles').select('*').is('deleted_at', null).order('full_name').order('id').range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('v_profile_directory').select('*').order('full_name').range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase
+        .from('warehouses')
+        .select('id, code, name, is_default, deleted_at')
+        .order('code')
+        .order('id')
+        .range(from, to)
+    )
   ])
 
-  const results = [
+  return {
     products,
     categories,
     customers,
@@ -561,31 +660,6 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     profiles,
     profileDirectory,
     warehouses
-  ]
-  const failed = results.find((result) => result.error)
-  if (failed?.error) throw new Error(failed.error.message)
-
-  return {
-    products: products.data ?? [],
-    categories: categories.data ?? [],
-    customers: customers.data ?? [],
-    suppliers: suppliers.data ?? [],
-    purchaseOrders: purchaseOrders.data ?? [],
-    purchaseItems: purchaseItems.data ?? [],
-    expenses: expenses.data ?? [],
-    expenseCategories: expenseCategories.data ?? [],
-    paymentMethods: paymentMethods.data ?? [],
-    saleReturns: saleReturns.data ?? [],
-    saleReturnItems: saleReturnItems.data ?? [],
-    cashSessions: cashSessions.data ?? [],
-    cashRegisters: cashRegisters.data ?? [],
-    sales: sales.data ?? [],
-    saleItems: saleItems.data ?? [],
-    salePayments: salePayments.data ?? [],
-    movements: movements.data ?? [],
-    profiles: profiles.data ?? [],
-    profileDirectory: profileDirectory.data ?? [],
-    warehouses: warehouses.data ?? []
   }
 }
 
