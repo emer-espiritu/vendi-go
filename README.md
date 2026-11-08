@@ -31,7 +31,7 @@ Aplicación de punto de venta y administración para minimarket, construida con 
 | Backend | Supabase: PostgreSQL 15, Auth, Storage, Realtime, RLS, RPC |
 | Cliente | `@supabase/supabase-js` tipado con `src/types/database.ts` |
 | Build | Vite 8 + TypeScript 7 + React Compiler |
-| Tests | `bun test` (equivalencias de presentaciones) |
+| Tests | `bun test` (presentaciones y conversión de compras) |
 
 El color primario del tema es `oklch(71.5% 0.143 215.221)` y el diseño original se conserva sin cambios.
 

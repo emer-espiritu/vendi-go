@@ -10,7 +10,7 @@ export async function createPurchase(input: PurchaseInput): Promise<string> {
       document_type: input.documentType,
       items: input.items.map((item) => ({
         product_id: item.productId,
-        presentation_id: null,
+        presentation_id: item.presentationId ?? null,
         qty: item.qty,
         unit_cost: item.cost,
         discount: 0

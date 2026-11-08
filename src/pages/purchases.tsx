@@ -22,6 +22,13 @@ import {
   type Column
 } from '@/components/ui'
 import { formatCurrency, formatDate, formatDateTime, formatNumber, round2 } from '@/lib/utils'
+import { BASE_UNIT_LABELS, productPresentations } from '@/lib/presentations'
+import {
+  buildPurchaseItem,
+  defaultPurchasePresentation,
+  purchaseUnitLabel,
+  suggestedPresentationCost
+} from '@/lib/purchases'
 import { messageOf } from '@/services/errors'
 import { useDemoStore } from '@/store/demo-store'
 import { useToast } from '@/store/toast'
@@ -96,6 +103,7 @@ export default function PurchasesPage() {
 
   const [items, setItems] = useState<PurchaseItem[]>([])
   const [productId, setProductId] = useState('')
+  const [presentationId, setPresentationId] = useState('')
   const [qty, setQty] = useState('1')
   const [cost, setCost] = useState('')
   const [itemError, setItemError] = useState<string | null>(null)
@@ -111,6 +119,19 @@ export default function PurchasesPage() {
   })
 
   const activeProducts = useMemo(() => products.filter((product) => product.active), [products])
+
+  const selectedProduct = useMemo(
+    () => activeProducts.find((product) => product.id === productId) ?? null,
+    [activeProducts, productId]
+  )
+  const presentationOptions = useMemo(
+    () => (selectedProduct ? productPresentations(selectedProduct) : []),
+    [selectedProduct]
+  )
+  const selectedPresentation =
+    presentationOptions.find((item) => item.id === presentationId) ??
+    (selectedProduct ? defaultPurchasePresentation(selectedProduct) : undefined)
+  const baseUnitLabel = selectedProduct ? BASE_UNIT_LABELS[selectedProduct.baseUnit] : 'UND'
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -149,6 +170,7 @@ export default function PurchasesPage() {
     reset(defaultPurchaseValues())
     setItems([])
     setProductId('')
+    setPresentationId('')
     setQty('1')
     setCost('')
     setItemError(null)
@@ -163,16 +185,33 @@ export default function PurchasesPage() {
   const handleProductChange = (value: string) => {
     setProductId(value)
     const product = activeProducts.find((candidate) => candidate.id === value)
-    setCost(product ? String(product.cost) : '')
+    if (!product) {
+      setPresentationId('')
+      setCost('')
+      setItemError(null)
+      return
+    }
+    const presentation = defaultPurchasePresentation(product)
+    setPresentationId(presentation.id)
+    setCost(String(suggestedPresentationCost(product, presentation)))
+    setItemError(null)
+  }
+
+  const handlePresentationChange = (value: string) => {
+    setPresentationId(value)
+    const presentation = presentationOptions.find((item) => item.id === value)
+    if (selectedProduct && presentation) {
+      setCost(String(suggestedPresentationCost(selectedProduct, presentation)))
+    }
     setItemError(null)
   }
 
   const addItem = () => {
-    const product = activeProducts.find((candidate) => candidate.id === productId)
+    const product = selectedProduct
     const parsedQty = Number(qty)
     const parsedCost = Number(cost)
 
-    if (!product) {
+    if (!product || !selectedPresentation) {
       setItemError('Selecciona un producto para agregarlo a la orden.')
       return
     }
@@ -181,12 +220,16 @@ export default function PurchasesPage() {
       return
     }
     if (!Number.isFinite(parsedCost) || parsedCost <= 0) {
-      setItemError('El costo unitario debe ser mayor a 0.')
+      setItemError('El costo por unidad debe ser mayor a 0.')
       return
     }
 
-    setItems((current) => [...current, { productId: product.id, name: product.name, qty: parsedQty, cost: parsedCost }])
+    setItems((current) => [
+      ...current,
+      buildPurchaseItem(product, selectedPresentation, parsedQty, parsedCost)
+    ])
     setProductId('')
+    setPresentationId('')
     setQty('1')
     setCost('')
     setItemError(null)
@@ -485,7 +528,7 @@ export default function PurchasesPage() {
           <div className="rounded-xl border border-line bg-surface-2/40 p-3">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Productos de la orden</p>
 
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_5rem_6.5rem_auto]">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_4.5rem_6.5rem_auto]">
               <Select
                 value={productId}
                 onChange={(event) => handleProductChange(event.target.value)}
@@ -498,13 +541,29 @@ export default function PurchasesPage() {
                   </option>
                 ))}
               </Select>
+              <Select
+                value={selectedPresentation?.id ?? ''}
+                onChange={(event) => handlePresentationChange(event.target.value)}
+                disabled={!selectedProduct}
+                aria-label="Presentación"
+              >
+                {presentationOptions.length === 0 ? (
+                  <option value="">Unidad base</option>
+                ) : (
+                  presentationOptions.map((presentation) => (
+                    <option key={presentation.id} value={presentation.id}>
+                      {presentation.label} · {formatNumber(presentation.factor, 2)} {baseUnitLabel}
+                    </option>
+                  ))
+                )}
+              </Select>
               <Input
                 type="number"
                 min="0"
                 step="0.01"
                 value={qty}
                 onChange={(event) => setQty(event.target.value)}
-                aria-label="Cantidad"
+                aria-label={`Cantidad en ${selectedPresentation?.label ?? baseUnitLabel}`}
                 placeholder="Cant."
               />
               <Input
@@ -513,46 +572,68 @@ export default function PurchasesPage() {
                 step="0.01"
                 value={cost}
                 onChange={(event) => setCost(event.target.value)}
-                aria-label="Costo unitario"
-                placeholder="Costo"
+                aria-label={`Costo por ${selectedPresentation?.label ?? baseUnitLabel}`}
+                placeholder={`Costo / ${selectedPresentation?.label ?? baseUnitLabel}`}
               />
-              <Button type="button" variant="secondary" icon={<Plus className="size-4" />} onClick={addItem}>
+              <Button
+                type="button"
+                variant="secondary"
+                icon={<Plus className="size-4" />}
+                onClick={addItem}
+                className="sm:col-span-2 xl:col-span-1"
+              >
                 Agregar
               </Button>
             </div>
+
+            {selectedProduct && selectedPresentation ? (
+              <p className="mt-1.5 text-[10px] text-muted">
+                1 {purchaseUnitLabel(selectedProduct, selectedPresentation)} ={' '}
+                {formatNumber(selectedPresentation.factor, 2)} {baseUnitLabel} · costo en unidad base{' '}
+                {formatCurrency(selectedProduct.cost)}
+              </p>
+            ) : null}
 
             {itemError ? <p className="mt-2 text-[11px] font-medium text-danger">{itemError}</p> : null}
 
             {items.length > 0 ? (
               <ul className="mt-3 space-y-1.5">
-                {items.map((item, index) => (
-                  <li
-                    key={`${item.productId}-${index}`}
-                    className="flex items-center gap-2 rounded-lg border border-line/70 bg-surface px-2.5 py-1.5"
-                  >
-                    <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-surface-2 text-xs">
-                      {products.find((product) => product.id === item.productId)?.emoji ?? '📦'}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-semibold text-foreground">{item.name}</span>
-                      <span className="block text-[11px] text-muted">
-                        {formatNumber(item.qty, 2)} × {formatCurrency(item.cost)}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-xs font-semibold text-foreground">
-                      {formatCurrency(round2(item.qty * item.cost))}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Quitar ${item.name}`}
-                      onClick={() => removeItem(index)}
+                {items.map((item, index) => {
+                  const product = products.find((candidate) => candidate.id === item.productId)
+                  const itemBaseUnit = BASE_UNIT_LABELS[product?.baseUnit ?? 'und']
+                  const unit = item.unit ?? itemBaseUnit
+                  return (
+                    <li
+                      key={`${item.productId}-${index}`}
+                      className="flex items-center gap-2 rounded-lg border border-line/70 bg-surface px-2.5 py-1.5"
                     >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </li>
-                ))}
+                      <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-surface-2 text-xs">
+                        {product?.emoji ?? '📦'}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-semibold text-foreground">{item.name}</span>
+                        <span className="block text-[11px] text-muted">
+                          {formatNumber(item.qty, 2)} {unit} × {formatCurrency(item.cost)}
+                          {item.factor && item.factor > 1
+                            ? ` · ${formatNumber(item.qty * item.factor, 2)} ${itemBaseUnit}`
+                            : ''}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-xs font-semibold text-foreground">
+                        {formatCurrency(round2(item.qty * item.cost))}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Quitar ${item.name}`}
+                        onClick={() => removeItem(index)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </li>
+                  )
+                })}
               </ul>
             ) : (
               <p className="mt-3 rounded-lg border border-dashed border-line px-3 py-3 text-center text-[11px] text-muted">
@@ -594,22 +675,30 @@ export default function PurchasesPage() {
             <div>
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Productos solicitados</p>
               <div className="space-y-1.5">
-                {detailPurchase.items.map((item, index) => (
-                  <div
-                    key={`${item.productId}-${index}`}
-                    className="flex items-center gap-3 rounded-xl border border-line/70 px-3 py-2"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-semibold text-foreground">{item.name}</p>
-                      <p className="text-[11px] text-muted">
-                        {formatNumber(item.qty, 2)} × {formatCurrency(item.cost)}
-                      </p>
+                {detailPurchase.items.map((item, index) => {
+                  const product = products.find((candidate) => candidate.id === item.productId)
+                  const itemBaseUnit = BASE_UNIT_LABELS[product?.baseUnit ?? 'und']
+                  const unit = item.unit?.toUpperCase() ?? itemBaseUnit
+                  return (
+                    <div
+                      key={`${item.productId}-${index}`}
+                      className="flex items-center gap-3 rounded-xl border border-line/70 px-3 py-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-foreground">{item.name}</p>
+                        <p className="text-[11px] text-muted">
+                          {formatNumber(item.qty, 2)} {unit} × {formatCurrency(item.cost)}
+                          {item.factor && item.factor > 1
+                            ? ` · ${formatNumber(item.qty * item.factor, 2)} ${itemBaseUnit}`
+                            : ''}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs font-semibold text-foreground">
+                        {formatCurrency(round2(item.qty * item.cost))}
+                      </span>
                     </div>
-                    <span className="shrink-0 text-xs font-semibold text-foreground">
-                      {formatCurrency(round2(item.qty * item.cost))}
-                    </span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 

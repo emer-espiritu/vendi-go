@@ -187,7 +187,11 @@ export function mapPurchases(
       productId: str(item.product_id),
       name: str(item.name),
       qty: num(item.qty),
-      cost: num(item.unit_cost)
+      cost: num(item.unit_cost),
+      presentationId: optionalStr(item.presentation_id) || undefined,
+      unit: optionalStr(item.unit) || undefined,
+      factor: num(item.factor, 1),
+      baseQty: num(item.base_qty)
     }))
 
     return {

@@ -163,8 +163,18 @@ export interface Supplier {
 export interface PurchaseItem {
   productId: string
   name: string
+  /** Cantidad en la unidad de la presentación comprada. */
   qty: number
+  /** Costo por unidad de la presentación comprada. */
   cost: number
+  /** Presentación comprada; ausente cuando se compra en unidad base. */
+  presentationId?: string
+  /** Etiqueta de la unidad comprada (CAJA, SACO, UND…). */
+  unit?: string
+  /** Unidades base que contiene la presentación comprada. */
+  factor?: number
+  /** Cantidad convertida a unidad base. */
+  baseQty?: number
 }
 
 export interface Purchase {
