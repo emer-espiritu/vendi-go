@@ -115,16 +115,16 @@ export function presentationById(product: Product, id: string): Presentation {
   return productPresentations(product).find((item) => item.id === id) ?? basePresentation(product)
 }
 
-/** Presentación de empaque más grande del producto, si el stock se maneja en packs. */
-function packPresentation(product: Product): Presentation | undefined {
-  const packs = productPresentations(product).filter((item) => item.factor > 1)
+/** Presentación de empaque más grande, si el stock se maneja en packs. */
+function packPresentation(presentations: Presentation[], purchaseUnit?: PurchaseUnit): Presentation | undefined {
+  const packs = presentations.filter((item) => item.factor > 1)
   if (packs.length === 0) return undefined
 
   // El pack más grande manda; ante empate (CAJA vs DOCENA) gana la unidad de compra.
   return [...packs].sort((a, b) => {
     if (b.factor !== a.factor) return b.factor - a.factor
-    if (a.id === product.purchaseUnit) return -1
-    if (b.id === product.purchaseUnit) return 1
+    if (a.id === purchaseUnit) return -1
+    if (b.id === purchaseUnit) return 1
     return 0
   })[0]
 }
@@ -134,15 +134,23 @@ function packPresentation(product: Product): Presentation | undefined {
  * más grande y el remanente en unidad base. Ej.: 150 kg con SACO de 50 kg
  * devuelve "3 SACO"; 130 kg devuelve "2 SACO + 30 KG".
  */
-export function formatStock(product: Product): string {
-  const stock = Math.max(0, product.stock)
-  const baseLabel = BASE_UNIT_LABELS[product.baseUnit] ?? 'UND'
-  const pack = packPresentation(product)
+export function formatStockValue(
+  stock: number,
+  presentations: Presentation[],
+  baseUnit: BaseUnit,
+  purchaseUnit?: PurchaseUnit
+): string {
+  const list = presentations.length
+    ? presentations
+    : [{ id: 'base', label: BASE_UNIT_LABELS[baseUnit] ?? 'UND', factor: 1, price: 0 }]
+  const quantity = Math.max(0, stock)
+  const baseLabel = list.find((item) => item.factor === 1)?.label ?? BASE_UNIT_LABELS[baseUnit] ?? 'UND'
+  const pack = packPresentation(list, purchaseUnit)
 
-  if (!pack) return `${formatNumber(stock, stock % 1 === 0 ? 0 : 2)} ${baseLabel}`
+  if (!pack) return `${formatNumber(quantity, quantity % 1 === 0 ? 0 : 2)} ${baseLabel}`
 
-  const packs = Math.floor((stock + 1e-9) / pack.factor)
-  const remainder = Math.max(0, round2(stock - packs * pack.factor))
+  const packs = Math.floor((quantity + 1e-9) / pack.factor)
+  const remainder = Math.max(0, round2(quantity - packs * pack.factor))
   const parts: string[] = []
 
   if (packs > 0) parts.push(`${formatNumber(packs, 0)} ${pack.label}`)
@@ -151,6 +159,38 @@ export function formatStock(product: Product): string {
   }
 
   return parts.join(' + ')
+}
+
+/** Formatea el stock de un producto usando sus presentaciones. */
+export function formatStock(product: Product): string {
+  return formatStockValue(product.stock, productPresentations(product), product.baseUnit, product.purchaseUnit)
+}
+
+/**
+ * Reparte un total en unidad base entre las presentaciones del formulario:
+ * la mayor cantidad posible en el empaque más grande y el resto en la base.
+ */
+export function splitStock(
+  stock: number,
+  presentations: Presentation[],
+  purchaseUnit?: PurchaseUnit
+): Map<string, number> {
+  const quantities = new Map<string, number>()
+  for (const item of presentations) quantities.set(item.id, 0)
+  const base = presentations.find((item) => item.factor === 1)
+  const pack = packPresentation(presentations, purchaseUnit)
+  const quantity = Math.max(0, stock)
+
+  if (!pack) {
+    if (base) quantities.set(base.id, quantity)
+    return quantities
+  }
+
+  const packs = Math.floor((quantity + 1e-9) / pack.factor)
+  const remainder = Math.max(0, round2(quantity - packs * pack.factor))
+  quantities.set(pack.id, packs)
+  if (base && remainder > 0) quantities.set(base.id, remainder)
+  return quantities
 }
 
 /** Busca una presentación por código de barras, incluyendo el código base del producto. */

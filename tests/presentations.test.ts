@@ -6,6 +6,7 @@ import {
   buildPresentations,
   formatStock,
   presentationStep,
+  splitStock,
   unitPrice
 } from '../src/lib/presentations'
 import { computeTotals } from '../src/lib/sales'
@@ -119,6 +120,32 @@ describe('formatStock', () => {
     const base = buildPresentations({ baseUnit: 'und', purchaseUnit: 'caja', packSize: 6, basePrice: 1 })
     const plancha: Presentation = { id: 'plancha', label: 'PLANCHA', factor: 30, price: 25 }
     expect(formatStock(stockProduct(65, 'und', [plancha, ...base], 'caja'))).toBe('2 PLANCHA + 5 UND')
+  })
+})
+
+describe('splitStock', () => {
+  const caja12 = buildPresentations({ baseUnit: 'und', purchaseUnit: 'caja', packSize: 12, basePrice: 4.9 })
+
+  test('reparte packs completos y deja el remanente en la base', () => {
+    const split = splitStock(130, caja12, 'caja')
+    expect(split.get('caja')).toBe(10)
+    expect(split.get('base')).toBe(10)
+    expect(split.get('docena')).toBe(0)
+  })
+
+  test('si no alcanza un pack deja todo en la base', () => {
+    const split = splitStock(5, caja12, 'caja')
+    expect(split.get('caja')).toBe(0)
+    expect(split.get('base')).toBe(5)
+  })
+
+  test('el formulario reconstruye el total a partir de las cantidades', () => {
+    const split = splitStock(130, caja12, 'caja')
+    const total = [...split.entries()].reduce((sum, [id, qty]) => {
+      const factor = caja12.find((item) => item.id === id)?.factor ?? 0
+      return sum + qty * factor
+    }, 0)
+    expect(total).toBe(130)
   })
 })
 

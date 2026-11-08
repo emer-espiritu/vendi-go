@@ -40,6 +40,9 @@ import {
   PURCHASE_UNIT_LABELS,
   buildPresentations,
   formatStock,
+  formatStockValue,
+  productPresentations,
+  splitStock,
 } from "@/lib/presentations";
 import {
   Badge,
@@ -105,6 +108,9 @@ const presentationSchema = z.object({
     )
     .or(z.literal(""))
     .optional(),
+  stockQty: z
+    .number({ error: "Ingresa una cantidad válida." })
+    .min(0, "La cantidad no puede ser negativa."),
 });
 
 const productSchema = z
@@ -136,9 +142,6 @@ const productSchema = z
     cost: z
       .number({ error: "Ingresa un costo válido." })
       .min(0, "El costo no puede ser negativo."),
-    stock: z
-      .number({ error: "Ingresa un stock válido." })
-      .min(0, "El stock no puede ser negativo."),
     minStock: z
       .number({ error: "Ingresa un stock mínimo válido." })
       .min(0, "El stock mínimo no puede ser negativo."),
@@ -206,7 +209,6 @@ function emptyProductValues(categoryId: string): ProductFormValues {
     categoryId,
     price: 0,
     cost: 0,
-    stock: 0,
     minStock: 0,
     baseUnit: "und",
     purchaseUnit: "",
@@ -215,6 +217,7 @@ function emptyProductValues(categoryId: string): ProductFormValues {
       (presentation) => ({
         ...presentation,
         barcode: "",
+        stockQty: 0,
       }),
     ),
     expiresAt: "",
@@ -225,6 +228,12 @@ function emptyProductValues(categoryId: string): ProductFormValues {
 }
 
 function productToValues(product: Product): ProductFormValues {
+  const presentations = productPresentations(product)
+  const stockByPresentation = splitStock(
+    product.stock,
+    presentations,
+    product.purchaseUnit,
+  )
   return {
     name: product.name,
     sku: product.sku,
@@ -232,14 +241,14 @@ function productToValues(product: Product): ProductFormValues {
     categoryId: product.categoryId,
     price: product.price,
     cost: product.cost,
-    stock: product.stock,
     minStock: product.minStock,
     baseUnit: product.baseUnit,
     purchaseUnit: product.purchaseUnit ?? "",
     packSize: product.packSize ?? 1,
-    presentations: product.presentations.map((presentation) => ({
+    presentations: presentations.map((presentation) => ({
       ...presentation,
       barcode: presentation.barcode ?? "",
+      stockQty: stockByPresentation.get(presentation.id) ?? 0,
     })),
     expiresAt: product.expiresAt ?? "",
     supplierId: product.supplierId ?? "",
@@ -358,6 +367,17 @@ export default function ProductsPage() {
   });
 
   const values = watch();
+  const totalStock = (values.presentations ?? []).reduce(
+    (total, presentation) =>
+      total + (Number(presentation.stockQty) || 0) * presentation.factor,
+    0,
+  );
+  const totalStockLabel = formatStockValue(
+    totalStock,
+    values.presentations ?? [],
+    values.baseUnit,
+    values.purchaseUnit || undefined,
+  );
   const selectedCategory = categories.find(
     (category) => category.id === values.categoryId,
   );
@@ -448,7 +468,31 @@ export default function ProductsPage() {
       ...presentation,
       barcode:
         current.find((item) => item.id === presentation.id)?.barcode ?? "",
+      stockQty:
+        current.find((item) => item.id === presentation.id)?.stockQty ?? 0,
     }));
+
+    // Al cambiar la unidad de compra desaparecen presentaciones: su stock no se
+    // pierde, se mueve a la unidad base para que el total siga cuadrando.
+    const orphanStock = current
+      .filter((item) => !list.some((next) => next.id === item.id))
+      .reduce(
+        (total, item) => total + (Number(item.stockQty) || 0) * item.factor,
+        0,
+      );
+    if (orphanStock > 0) {
+      const baseIndex = list.findIndex((item) => item.factor === 1);
+      if (baseIndex >= 0) {
+        list[baseIndex] = {
+          ...list[baseIndex],
+          stockQty:
+            Math.round(
+              ((Number(list[baseIndex].stockQty) || 0) + orphanStock) * 1000,
+            ) / 1000,
+        };
+      }
+    }
+
     setValue("presentations", list, {
       shouldDirty: true,
       shouldValidate: true,
@@ -606,12 +650,22 @@ export default function ProductsPage() {
     );
     const presentations: Presentation[] = formValues.presentations.map(
       (presentation) => ({
-        ...presentation,
+        id: presentation.id,
+        label: presentation.label,
+        factor: presentation.factor,
         price:
           presentation.factor === 1 ? formValues.price : presentation.price,
         barcode: presentation.barcode || undefined,
       }),
     );
+    const stock =
+      Math.round(
+        formValues.presentations.reduce(
+          (total, presentation) =>
+            total + presentation.stockQty * presentation.factor,
+          0,
+        ) * 1000,
+      ) / 1000;
     const base =
       presentations.find((presentation) => presentation.factor === 1) ??
       presentations[0];
@@ -622,7 +676,7 @@ export default function ProductsPage() {
       categoryId: formValues.categoryId,
       price: base.price,
       cost: formValues.cost,
-      stock: formValues.stock,
+      stock,
       minStock: formValues.minStock,
       baseUnit: formValues.baseUnit,
       purchaseUnit: formValues.purchaseUnit || undefined,
@@ -1229,20 +1283,11 @@ export default function ProductsPage() {
               />
             </Field>
 
-            <Field label="Stock actual" required error={errors.stock?.message}>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                {...register("stock", { valueAsNumber: true })}
-                invalid={Boolean(errors.stock)}
-              />
-            </Field>
-
             <Field
               label="Stock mínimo"
               required
               error={errors.minStock?.message}
+              hint={`En ${BASE_UNIT_LABELS[values.baseUnit]}.`}
             >
               <Input
                 type="number"
@@ -1257,7 +1302,7 @@ export default function ProductsPage() {
               label="Unidad base"
               required
               error={errors.baseUnit?.message}
-              hint="El stock, los mínimos y las conversiones se manejan en esta unidad."
+              hint="El stock se guarda en esta unidad; arriba podés cargarlo por presentación."
             >
               <Select
                 {...register("baseUnit")}
@@ -1398,6 +1443,52 @@ export default function ProductsPage() {
               <p className="text-[10px] text-muted">
                 La presentación base (equivalencia 1) toma el precio de venta
                 por unidad base del producto.
+              </p>
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-line bg-surface-2/60 p-3 sm:col-span-2">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-foreground">
+                    Stock actual por presentación
+                  </p>
+                  <p className="text-[10px] text-muted">
+                    Carga empaques completos y unidades base sueltas. El total
+                    se guarda en {BASE_UNIT_LABELS[values.baseUnit]}.
+                  </p>
+                </div>
+                <Badge tone="brand">{totalStockLabel}</Badge>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {(values.presentations ?? []).map((presentation, index) => (
+                  <Field
+                    key={`${presentation.id}-${index}`}
+                    label={`${presentation.label} · ${formatNumber(presentation.factor, 2)} ${BASE_UNIT_LABELS[values.baseUnit]}`}
+                    error={errors.presentations?.[index]?.stockQty?.message}
+                  >
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      {...register(`presentations.${index}.stockQty`, {
+                        valueAsNumber: true,
+                      })}
+                      invalid={Boolean(
+                        errors.presentations?.[index]?.stockQty,
+                      )}
+                      aria-label={`Stock en ${presentation.label}`}
+                    />
+                  </Field>
+                ))}
+              </div>
+
+              <p className="text-[11px] text-muted">
+                Total en unidad base:{' '}
+                <strong className="text-foreground">
+                  {formatNumber(totalStock, 2)}{' '}
+                  {BASE_UNIT_LABELS[values.baseUnit]}
+                </strong>
               </p>
             </div>
 
