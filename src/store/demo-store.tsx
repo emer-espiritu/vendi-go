@@ -50,7 +50,11 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_orders' }, schedule)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, schedule)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, schedule)
-      .subscribe()
+      .subscribe((status, error) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('[realtime] channel unavailable, falling back to manual refresh', status, error)
+        }
+      })
 
     return () => {
       window.clearTimeout(timer)

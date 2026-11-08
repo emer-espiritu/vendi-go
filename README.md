@@ -194,6 +194,7 @@ No se guarda estado crítico solo en el navegador: precios, stock, totales, impu
 | `20261031001800_profile_directory.sql` | `profiles` solo se lee propio o con `roles.view`; `v_profile_directory` expone solo el nombre |
 | `20261031001900_cash_reconciliation.sql` | El arqueo cuenta solo efectivo: ventas y gastos con tarjeta/billetera/transferencia no mueven `expected_total` |
 | `20261106000100_purchase_units_extra.sql` | Agrega `plancha`, `tira` y `display` al enum `purchase_unit` |
+| `20261108000100_realtime_publication.sql` | Publica en `supabase_realtime` las tablas que la app escucha para refrescar las pantallas |
 
 ### Tablas principales
 
