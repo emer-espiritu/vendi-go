@@ -430,7 +430,7 @@ export default function PosPage() {
                         })}
                       </div>
 
-                      <div className="flex w-full items-center justify-between gap-1">
+                      <div className="flex flex-col w-full items-center justify-between gap-1">
                         <span className="text-sm font-semibold text-foreground">
                           {formatCurrency(
                             presentations[0].factor > 1
@@ -445,7 +445,9 @@ export default function PosPage() {
                           </span>
                         </span>
                         <Badge tone={stockTone(product)} className="text-[9px]">
-                          {product.stock <= 0 ? "Agotado" : formatStock(product)}
+                          {product.stock <= 0
+                            ? "Agotado"
+                            : formatStock(product)}
                         </Badge>
                       </div>
                     </div>
