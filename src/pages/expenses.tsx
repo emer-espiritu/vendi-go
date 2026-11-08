@@ -25,7 +25,7 @@ import {
 import { EXPENSE_CATEGORIES } from '@/data/expenses'
 import { exportExcel } from '@/lib/export'
 import { PAYMENT_LABELS } from '@/lib/sales'
-import { formatCurrency, formatDate, formatNumber, round2 } from '@/lib/utils'
+import { formatCurrency, formatDate, formatNumber, round2, toISODate } from '@/lib/utils'
 import { useAuth } from '@/store/auth'
 import { useDemoStore } from '@/store/demo-store'
 import { useToast } from '@/store/toast'
@@ -77,7 +77,7 @@ function emptyExpense(): ExpenseValues {
     description: '',
     amount: '',
     method: 'efectivo',
-    date: new Date().toISOString().slice(0, 10)
+    date: toISODate(new Date())
   }
 }
 
@@ -85,10 +85,6 @@ function isPaymentMethod(value: string): value is PaymentMethod {
   return (PAYMENT_METHODS as readonly string[]).includes(value)
 }
 
-/** Las fechas de los gastos son YYYY-MM-DD; se interpretan al mediodía para evitar desfases por zona horaria. */
-function formatDay(value: string) {
-  return formatDate(`${value}T12:00:00`)
-}
 
 export default function ExpensesPage() {
   const { expenses, closings, createExpense } = useDemoStore()
@@ -192,7 +188,7 @@ export default function ExpensesPage() {
   const handleExport = () => {
     exportExcel<Expense>('gastos', 'Gastos', filtered, [
       { header: 'Código', value: (expense) => expense.code },
-      { header: 'Fecha', value: (expense) => formatDay(expense.date) },
+      { header: 'Fecha', value: (expense) => formatDate(expense.date) },
       { header: 'Categoría', value: (expense) => expense.category },
       { header: 'Descripción', value: (expense) => expense.description },
       { header: 'Método de pago', value: (expense) => PAYMENT_LABELS[expense.method] },
@@ -217,7 +213,7 @@ export default function ExpensesPage() {
       key: 'date',
       header: 'Fecha',
       sortValue: (expense) => expense.date,
-      render: (expense) => <span className="text-[11px] text-muted">{formatDay(expense.date)}</span>
+      render: (expense) => <span className="text-[11px] text-muted">{formatDate(expense.date)}</span>
     },
     {
       key: 'category',
@@ -473,7 +469,7 @@ export default function ExpensesPage() {
         open={detailExpense !== null}
         onClose={() => setDetailId(null)}
         title={detailExpense ? `Gasto ${detailExpense.code}` : 'Detalle del gasto'}
-        description={detailExpense ? formatDay(detailExpense.date) : undefined}
+        description={detailExpense ? formatDate(detailExpense.date) : undefined}
         size="md"
       >
         {detailExpense ? (
@@ -494,7 +490,7 @@ export default function ExpensesPage() {
             <div className="grid gap-2 sm:grid-cols-3">
               <div className="rounded-xl border border-line/70 px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Fecha</p>
-                <p className="mt-0.5 text-xs font-semibold text-foreground">{formatDay(detailExpense.date)}</p>
+                <p className="mt-0.5 text-xs font-semibold text-foreground">{formatDate(detailExpense.date)}</p>
               </div>
               <div className="rounded-xl border border-line/70 px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Método de pago</p>

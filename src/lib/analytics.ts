@@ -1,5 +1,5 @@
 import type { Category, Expense, PaymentMethod, Product, Sale } from '@/types'
-import { round2 } from './utils'
+import { parseDateOnly, round2 } from './utils'
 
 export interface SalesMetrics {
   revenue: number
@@ -24,7 +24,7 @@ export function salesBetween(sales: Sale[], from: Date, to: Date) {
 
 export function expensesBetween(expenses: Expense[], from: Date, to: Date) {
   return expenses.filter((expense) => {
-    const date = new Date(`${expense.date}T12:00:00`)
+    const date = parseDateOnly(expense.date)
     return date >= from && date <= to
   })
 }

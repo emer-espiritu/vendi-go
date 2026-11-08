@@ -86,10 +86,6 @@ function emptyCustomer(): CustomerValues {
   }
 }
 
-/** Las fechas de alta llegan como YYYY-MM-DD; se interpretan al mediodía para evitar desfases por zona horaria. */
-function formatDay(value: string) {
-  return formatDate(`${value}T12:00:00`)
-}
 
 export default function CustomersPage() {
   const { customers, sales, createCustomer, updateCustomer, deleteCustomer } = useDemoStore()
@@ -266,7 +262,7 @@ export default function CustomersPage() {
       key: 'createdAt',
       header: 'Alta',
       sortValue: (customer) => customer.createdAt,
-      render: (customer) => <span className="text-[11px] text-muted">{formatDay(customer.createdAt)}</span>
+      render: (customer) => <span className="text-[11px] text-muted">{formatDate(customer.createdAt)}</span>
     },
     {
       key: 'actions',
@@ -523,7 +519,7 @@ export default function CustomersPage() {
               </div>
               <div className="rounded-xl border border-line/70 px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Cliente desde</p>
-                <p className="mt-0.5 text-sm font-semibold text-foreground">{formatDay(detailCustomer.createdAt)}</p>
+                <p className="mt-0.5 text-sm font-semibold text-foreground">{formatDate(detailCustomer.createdAt)}</p>
               </div>
             </div>
 

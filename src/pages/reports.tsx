@@ -22,7 +22,7 @@ import {
 } from '@/lib/analytics'
 import { exportCsv, exportExcel, printDocument } from '@/lib/export'
 import { PAYMENT_LABELS } from '@/lib/sales'
-import { formatCurrency, formatDate, formatNumber, round2 } from '@/lib/utils'
+import { formatCurrency, formatDate, formatNumber, parseDateOnly, round2 } from '@/lib/utils'
 import { useDemoStore } from '@/store/demo-store'
 import { useToast } from '@/store/toast'
 import {
@@ -69,8 +69,9 @@ function rangeFor(preset: Preset, from: string, to: string) {
   start.setHours(0, 0, 0, 0)
 
   if (from || to) {
-    const customStart = from ? new Date(`${from}T00:00:00`) : start
-    const customEnd = to ? new Date(`${to}T23:59:59`) : end
+    const customStart = from ? parseDateOnly(from) : start
+    const customEnd = to ? parseDateOnly(to) : end
+    customEnd.setHours(23, 59, 59, 999)
     return customStart <= customEnd ? { start: customStart, end: customEnd } : { start: customEnd, end: customStart }
   }
 
@@ -140,7 +141,7 @@ export default function ReportsPage() {
 
   const filteredExpenses = useMemo(
     () => expenses.filter((expense) => {
-      const date = new Date(`${expense.date}T12:00:00`)
+      const date = parseDateOnly(expense.date)
       return date >= start && date <= end
     }),
     [expenses, start, end]

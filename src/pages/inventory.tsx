@@ -92,8 +92,7 @@ const movementSchema = z.object({
 type MovementValues = z.infer<typeof movementSchema>
 
 function daysToExpiry(expiresAt: string) {
-  // Parse date-only values as local noon so the day count is not shifted by the UTC offset.
-  return daysUntil(`${expiresAt.slice(0, 10)}T12:00:00`)
+  return daysUntil(expiresAt.slice(0, 10))
 }
 
 function stockStatus(product: Product): { label: string; tone: BadgeTone } {

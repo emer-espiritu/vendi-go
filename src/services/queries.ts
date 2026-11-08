@@ -6,6 +6,7 @@
  * almacén relevante para el usuario (el de su turno abierto o el default).
  */
 import { supabase } from '@/lib/supabase'
+import { toISODate } from '@/lib/utils'
 import { fail } from './errors'
 import type {
   AppNotification,
@@ -43,7 +44,15 @@ const optionalStr = (value: unknown): string | undefined => {
   return result ? result : undefined
 }
 
-const dateOnly = (value: unknown): string => str(value).slice(0, 10)
+/**
+ * Las columnas `date` llegan como `YYYY-MM-DD`; los `timestamptz` se convierten
+ * a la fecha local para no mostrar el día anterior en zonas como Lima (UTC-5).
+ */
+const dateOnly = (value: unknown): string => {
+  const text = str(value)
+  if (!text) return ''
+  return text.length > 10 ? toISODate(new Date(text)) : text.slice(0, 10)
+}
 
 export interface RawSnapshot {
   products: Row[]

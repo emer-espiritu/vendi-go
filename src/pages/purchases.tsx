@@ -21,7 +21,7 @@ import {
   type BadgeTone,
   type Column
 } from '@/components/ui'
-import { formatCurrency, formatDate, formatDateTime, formatNumber, round2 } from '@/lib/utils'
+import { formatCurrency, formatDate, formatDateTime, formatNumber, round2, toISODate } from '@/lib/utils'
 import { BASE_UNIT_LABELS, productPresentations } from '@/lib/presentations'
 import {
   buildPurchaseItem,
@@ -79,14 +79,10 @@ function defaultPurchaseValues(): PurchaseValues {
   return {
     supplierId: '',
     documentType: 'factura',
-    date: new Date().toISOString().slice(0, 10)
+    date: toISODate(new Date())
   }
 }
 
-/** Las fechas de las órdenes son YYYY-MM-DD; se interpretan al mediodía para evitar desfases por zona horaria. */
-function formatDay(value: string) {
-  return formatDate(`${value}T12:00:00`)
-}
 
 export default function PurchasesPage() {
   const { purchases, suppliers, products, movements, receivePurchase, voidPurchase, createPurchase } = useDemoStore()
@@ -323,7 +319,7 @@ export default function PurchasesPage() {
       key: 'date',
       header: 'Fecha',
       sortValue: (purchase) => purchase.date,
-      render: (purchase) => <span className="text-[11px] text-muted">{formatDay(purchase.date)}</span>
+      render: (purchase) => <span className="text-[11px] text-muted">{formatDate(purchase.date)}</span>
     },
     {
       key: 'document',
@@ -655,7 +651,7 @@ export default function PurchasesPage() {
         title={detailPurchase ? `Orden ${detailPurchase.code}` : 'Detalle de la orden'}
         description={
           detailPurchase
-            ? `${detailPurchase.supplierName} · ${formatDay(detailPurchase.date)}`
+            ? `${detailPurchase.supplierName} · ${formatDate(detailPurchase.date)}`
             : undefined
         }
         size="lg"

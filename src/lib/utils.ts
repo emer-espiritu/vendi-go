@@ -41,24 +41,44 @@ const dateTimeFormatter = new Intl.DateTimeFormat('es-PE', {
 })
 const timeFormatter = new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit' })
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Convierte un `YYYY-MM-DD` en una fecha local. `new Date('2026-11-08')` la
+ * interpreta como medianoche UTC, que en Lima (UTC-5) cae el día anterior.
+ * Los timestamps completos se delegan al parseo nativo.
+ */
+export function parseDateOnly(value: string | Date): Date {
+  if (value instanceof Date) return value
+  if (DATE_ONLY.test(value)) {
+    const [year, month, day] = value.split('-').map(Number)
+    return new Date(year, month - 1, day)
+  }
+  return new Date(value)
+}
+
 export function formatDate(value: string | Date) {
-  return dateFormatter.format(typeof value === 'string' ? new Date(value) : value)
+  return dateFormatter.format(parseDateOnly(value))
 }
 
 export function formatDateTime(value: string | Date) {
-  return dateTimeFormatter.format(typeof value === 'string' ? new Date(value) : value)
+  return dateTimeFormatter.format(parseDateOnly(value))
 }
 
 export function formatTime(value: string | Date) {
-  return timeFormatter.format(typeof value === 'string' ? new Date(value) : value)
+  return timeFormatter.format(parseDateOnly(value))
 }
 
+/** Fecha local en formato `YYYY-MM-DD` (no la fecha UTC de `toISOString`). */
 export function toISODate(date: Date) {
-  return date.toISOString().slice(0, 10)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 export function daysUntil(value: string) {
-  const target = new Date(value)
+  const target = parseDateOnly(value)
   const today = new Date()
   target.setHours(0, 0, 0, 0)
   today.setHours(0, 0, 0, 0)
