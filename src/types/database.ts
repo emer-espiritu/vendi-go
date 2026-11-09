@@ -1177,6 +1177,9 @@ isOneToOne: false
 "register_login":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"report_overview":
+{ Args: { "p_doc_type"?: string,"p_from": string,"p_sales_limit"?: number,"p_to": string,"p_top_limit"?: number,"p_user_id"?: string }; Returns: Json
+                           },
 "seed_demo_history":
 { Args: { "p_count"?: number,"p_days"?: number,"p_user_id": string }; Returns: Json
                            },

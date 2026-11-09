@@ -195,6 +195,8 @@ No se guarda estado crítico solo en el navegador: precios, stock, totales, impu
 | `20261031001900_cash_reconciliation.sql` | El arqueo cuenta solo efectivo: ventas y gastos con tarjeta/billetera/transferencia no mueven `expected_total` |
 | `20261106000100_purchase_units_extra.sql` | Agrega `plancha`, `tira` y `display` al enum `purchase_unit` |
 | `20261108000100_realtime_publication.sql` | Publica en `supabase_realtime` las tablas que la app escucha para refrescar las pantallas |
+| `20261108000200_report_overview.sql` | RPC `report_overview`: agrega ventas, gastos, series y desgloses de un rango de fechas en Postgres |
+| `20261108000300_report_overview_cashiers.sql` | Ajusta `report_overview`: cajeros del rango sin depender de los filtros y `p_sales_limit <= 0` como "sin tope" |
 
 ### Tablas principales
 
