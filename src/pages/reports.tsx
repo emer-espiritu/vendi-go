@@ -9,20 +9,13 @@ import {
   TrendingUp,
   Wallet
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { DailyPoint } from '@/lib/analytics'
-import {
-  categoryBreakdown,
-  metricsOf,
-  monthlySeries,
-  paymentBreakdown,
-  salesBetween,
-  topProducts
-} from '@/lib/analytics'
+import type { DailyPoint, MonthlyPoint } from '@/lib/analytics'
 import { exportCsv, exportExcel, printDocument } from '@/lib/export'
 import { PAYMENT_LABELS } from '@/lib/sales'
-import { formatCurrency, formatDate, formatNumber, parseDateOnly, round2 } from '@/lib/utils'
+import { formatCurrency, formatDate, formatNumber, parseDateOnly, round2, toISODate } from '@/lib/utils'
+import { useReportOverview } from '@/hooks/use-report-overview'
 import { useDemoStore } from '@/store/demo-store'
 import { useToast } from '@/store/toast'
 import {
@@ -80,31 +73,7 @@ function rangeFor(preset: Preset, from: string, to: string) {
 
 const dayLabel = new Intl.DateTimeFormat('es-PE', { day: '2-digit', month: 'short' })
 const longDayLabel = new Intl.DateTimeFormat('es-PE', { weekday: 'short', day: '2-digit', month: 'short' })
-
-function buildDaily(sales: Parameters<typeof salesBetween>[0], start: Date, end: Date): DailyPoint[] {
-  const span = Math.min(92, Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1))
-  const cursor = new Date(end)
-  cursor.setHours(0, 0, 0, 0)
-  const first = new Date(cursor)
-  first.setDate(first.getDate() - (span - 1))
-
-  const points: DailyPoint[] = []
-  for (let index = 0; index < span; index += 1) {
-    const day = new Date(first)
-    day.setDate(first.getDate() + index)
-    const next = new Date(day)
-    next.setDate(day.getDate() + 1)
-    const previous = new Date(day)
-    previous.setDate(day.getDate() - 1)
-    points.push({
-      label: dayLabel.format(day),
-      fullLabel: longDayLabel.format(day),
-      ventas: round2(salesBetween(sales, day, next).reduce((sum, sale) => sum + sale.total, 0)),
-      anterior: round2(salesBetween(sales, previous, day).reduce((sum, sale) => sum + sale.total, 0))
-    })
-  }
-  return points
-}
+const monthLabel = new Intl.DateTimeFormat('es-PE', { month: 'short' })
 
 interface ReportRow {
   code: string
@@ -118,7 +87,7 @@ interface ReportRow {
 }
 
 export default function ReportsPage() {
-  const { sales, expenses, products, categories } = useDemoStore()
+  const { products } = useDemoStore()
   const { toast } = useToast()
 
   const [preset, setPreset] = useState<Preset>('30')
@@ -129,48 +98,89 @@ export default function ReportsPage() {
 
   const { start, end } = useMemo(() => rangeFor(preset, from, to), [preset, from, to])
 
-  const cashiers = useMemo(() => [...new Set(sales.map((sale) => sale.cashier))].sort(), [sales])
+  const { data, loading, error } = useReportOverview({
+    from: toISODate(start),
+    to: toISODate(end),
+    docType: docType === 'todas' ? null : docType,
+    userId: cashier === 'todos' ? null : cashier,
+    // La tabla y la exportación necesitan el detalle completo del rango.
+    salesLimit: 0,
+    topLimit: 8
+  })
 
-  const filteredSales = useMemo(() => {
-    return salesBetween(sales, start, end).filter((sale) => {
-      if (docType !== 'todas' && sale.docType !== docType) return false
-      if (cashier !== 'todos' && sale.cashier !== cashier) return false
-      return true
-    })
-  }, [sales, start, end, docType, cashier])
+  const cashierOptions = useMemo(() => (data?.cashiers ?? []).filter((entry) => entry.id), [data])
 
-  const filteredExpenses = useMemo(
-    () => expenses.filter((expense) => {
-      const date = parseDateOnly(expense.date)
-      return date >= start && date <= end
-    }),
-    [expenses, start, end]
+  // Si el cajero elegido no vendió en el nuevo rango, el filtro vuelve a
+  // "Todos": el `<select>` no puede mostrar una opción que ya no existe.
+  useEffect(() => {
+    if (cashier === 'todos' || !data) return
+    if (!data.cashiers.some((entry) => entry.id === cashier)) setCashier('todos')
+  }, [cashier, data])
+
+  const summary = data?.summary
+  const metrics = {
+    revenue: summary?.revenue ?? 0,
+    profit: summary?.profit ?? 0,
+    ticket: summary?.ticket ?? 0,
+    transactions: summary?.transactions ?? 0,
+    expenses: summary?.expenses ?? 0
+  }
+  const expenseCount = summary?.expenseCount ?? 0
+
+  const daily = useMemo<DailyPoint[]>(
+    () =>
+      (data?.daily ?? []).map((point) => {
+        const day = parseDateOnly(point.day)
+        return {
+          label: dayLabel.format(day),
+          fullLabel: longDayLabel.format(day),
+          ventas: point.revenue,
+          anterior: point.previousRevenue
+        }
+      }),
+    [data]
   )
 
-  const metrics = useMemo(() => metricsOf(filteredSales, filteredExpenses), [filteredSales, filteredExpenses])
-  const daily = useMemo(() => buildDaily(filteredSales, start, end), [filteredSales, start, end])
-  const monthly = useMemo(() => monthlySeries(sales, expenses, 6), [sales, expenses])
-  const byCategory = useMemo(() => categoryBreakdown(filteredSales, products, categories), [filteredSales, products, categories])
-  const bestProducts = useMemo(() => topProducts(filteredSales, products, 8), [filteredSales, products])
-  const payments = useMemo(() => paymentBreakdown(filteredSales), [filteredSales])
+  const monthly = useMemo<MonthlyPoint[]>(
+    () =>
+      (data?.monthly ?? []).map((point) => ({
+        label: monthLabel.format(parseDateOnly(point.month)),
+        ventas: point.revenue,
+        gastos: point.expenses,
+        ganancia: point.profit
+      })),
+    [data]
+  )
 
-  const expenseBreakdown = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const expense of filteredExpenses) map.set(expense.category, round2((map.get(expense.category) ?? 0) + expense.amount))
-    return [...map.entries()].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount)
-  }, [filteredExpenses])
+  const byCategory = useMemo(
+    () => (data?.categories ?? []).map((entry) => ({ name: entry.name, value: entry.total, color: entry.color })),
+    [data]
+  )
+
+  const bestProducts = useMemo(
+    () =>
+      (data?.products ?? []).map((product) => ({
+        ...product,
+        id: product.id ?? product.sku,
+        emoji: products.find((candidate) => candidate.id === product.id)?.emoji ?? '📦'
+      })),
+    [data, products]
+  )
+
+  const payments = data?.payments ?? []
+  const expenseBreakdown = data?.expenses ?? []
 
   const margin = metrics.revenue > 0 ? (metrics.profit / metrics.revenue) * 100 : 0
   const expenseTotal = metrics.expenses
   const netResult = round2(metrics.profit - expenseTotal)
 
-  const rows: ReportRow[] = filteredSales.map((sale) => ({
+  const rows: ReportRow[] = (data?.sales ?? []).map((sale) => ({
     code: sale.code,
     date: formatDate(sale.date),
     docType: sale.docType === 'factura' ? 'Factura' : 'Boleta',
     customer: sale.customerName,
-    cashier: sale.cashier,
-    items: sale.items.length,
+    cashier: sale.cashierName,
+    items: sale.itemsCount,
     total: sale.total,
     profit: sale.profit
   }))
@@ -301,9 +311,9 @@ export default function ReportsPage() {
               <Field label="Cajero">
                 <Select value={cashier} onChange={(event) => setCashier(event.target.value)} className="h-9">
                   <option value="todos">Todos</option>
-                  {cashiers.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
+                  {cashierOptions.map((entry) => (
+                    <option key={entry.id} value={entry.id ?? ''}>
+                      {entry.name}
                     </option>
                   ))}
                 </Select>
@@ -316,8 +326,10 @@ export default function ReportsPage() {
               Del <strong className="text-foreground">{formatDate(start)}</strong> al{' '}
               <strong className="text-foreground">{formatDate(end)}</strong>
             </span>
-            <Badge tone="brand">{formatNumber(filteredSales.length, 0)} ventas</Badge>
-            <Badge tone="neutral">{formatNumber(filteredExpenses.length, 0)} gastos</Badge>
+            <Badge tone="brand">{formatNumber(metrics.transactions, 0)} ventas</Badge>
+            <Badge tone="neutral">{formatNumber(expenseCount, 0)} gastos</Badge>
+            {loading ? <Badge tone="neutral">Actualizando…</Badge> : null}
+            {error ? <span className="font-semibold text-danger">{error}</span> : null}
           </div>
         </CardContent>
       </Card>
@@ -325,7 +337,7 @@ export default function ReportsPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Ventas netas" value={formatCurrency(metrics.revenue)} icon={TrendingUp} tone="brand" hint={`Ticket promedio ${formatCurrency(metrics.ticket)}`} />
         <StatCard label="Ganancia bruta" value={formatCurrency(metrics.profit)} icon={Percent} tone="success" hint={`Margen ${margin.toFixed(1)}%`} />
-        <StatCard label="Gastos del período" value={formatCurrency(expenseTotal)} icon={Wallet} tone="danger" hint={`${formatNumber(filteredExpenses.length, 0)} registros`} />
+        <StatCard label="Gastos del período" value={formatCurrency(expenseTotal)} icon={Wallet} tone="danger" hint={`${formatNumber(expenseCount, 0)} registros`} />
         <StatCard
           label="Resultado neto"
           value={formatCurrency(netResult)}

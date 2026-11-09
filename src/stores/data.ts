@@ -53,6 +53,12 @@ interface DataState extends Snapshot {
   ready: boolean
   loading: boolean
   error: string | null
+  /**
+   * Sube en cada recarga del snapshot. Las consultas que no dependen del
+   * snapshot (reportes agregados en Postgres) lo usan como señal para volver a
+   * pedir datos cuando Realtime avisa de un cambio.
+   */
+  revision: number
   /** Almacén activo con el que se mapea `product.stock` y se ajusta inventario. */
   warehouseId?: string
   registers: CashRegisterOption[]
@@ -117,6 +123,7 @@ export const useDataStore = create<DataState>((set, get) => {
       ...snapshot,
       warehouseId,
       registers,
+      revision: get().revision + 1,
       notifications: applyReadFlags(snapshot.notifications, get().readNotificationIds),
       ready: true,
       loading: false,
@@ -147,6 +154,7 @@ export const useDataStore = create<DataState>((set, get) => {
     ready: false,
     loading: true,
     error: null,
+    revision: 0,
     registers: [],
     readNotificationIds: [],
 

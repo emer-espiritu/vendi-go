@@ -13,23 +13,14 @@ import {
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  categoryBreakdown,
-  dailySeries,
-  expensesBetween,
-  metricsOf,
-  monthlySeries,
-  paymentBreakdown,
-  percentDelta,
-  salesBetween,
-  startOfDay,
-  topProducts
-} from '@/lib/analytics'
+import type { DailyPoint, MonthlyPoint } from '@/lib/analytics'
+import { percentDelta } from '@/lib/analytics'
 import { canAccess, canViewAllSales } from '@/lib/permissions'
 import { PAYMENT_LABELS } from '@/lib/sales'
 import { useAuth } from '@/store/auth'
 import { useDemoStore } from '@/store/demo-store'
-import { cn, daysUntil, formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils'
+import { useReportOverview } from '@/hooks/use-report-overview'
+import { cn, daysUntil, formatCurrency, formatDate, formatDateTime, formatNumber, parseDateOnly, toISODate } from '@/lib/utils'
 import { formatStock } from '@/lib/presentations'
 import { CategoryDonut, PerformanceChart, ProfitLineChart, SalesAreaChart } from '@/components/charts'
 import {
@@ -55,42 +46,84 @@ const RANGE_OPTIONS = [
 
 export default function DashboardPage() {
   const { user } = useAuth()
-  const { sales, expenses, products, categories, customers, closings } = useDemoStore()
+  const { products, customers, closings } = useDemoStore()
   const [range, setRange] = useState<Range>('30')
 
-  const analytics = useMemo(() => {
-    const days = Number(range)
+  const days = Number(range)
+
+  const { from, to } = useMemo(() => {
     const end = new Date()
-    end.setHours(23, 59, 59, 999)
-    const from = startOfDay(new Date())
-    from.setDate(from.getDate() - (days - 1))
+    const start = new Date(end)
+    start.setDate(start.getDate() - (days - 1))
+    return { from: toISODate(start), to: toISODate(end) }
+  }, [days])
 
-    const previousEnd = new Date(from.getTime() - 1)
-    const previousFrom = startOfDay(new Date(previousEnd))
-    previousFrom.setDate(previousFrom.getDate() - (days - 1))
+  const { data, loading, error } = useReportOverview({ from, to, salesLimit: 5, topLimit: 5 })
 
-    const currentSales = salesBetween(sales, from, end)
-    const previousSales = salesBetween(sales, previousFrom, previousEnd)
-    const currentExpenses = expensesBetween(expenses, from, end)
-    const previousExpenses = expensesBetween(expenses, previousFrom, previousEnd)
+  const summary = data?.summary
+  const previous = data?.previous
+  const metrics = {
+    revenue: summary?.revenue ?? 0,
+    profit: summary?.profit ?? 0,
+    units: summary?.units ?? 0,
+    transactions: summary?.transactions ?? 0,
+    ticket: summary?.ticket ?? 0,
+    expenses: summary?.expenses ?? 0
+  }
+  const previousMetrics = {
+    revenue: previous?.revenue ?? 0,
+    profit: previous?.profit ?? 0,
+    units: previous?.units ?? 0,
+    transactions: previous?.transactions ?? 0,
+    expenses: previous?.expenses ?? 0
+  }
 
-    const metrics = metricsOf(currentSales, currentExpenses)
-    const previousMetrics = metricsOf(previousSales, previousExpenses)
+  // El gráfico del dashboard no muestra más de 30 días aunque el rango sea 90.
+  const daily = useMemo<DailyPoint[]>(
+    () =>
+      (data?.daily ?? [])
+        .slice(-Math.min(days, 30))
+        .map((point) => {
+          const day = parseDateOnly(point.day)
+          return {
+            label: new Intl.DateTimeFormat('es-PE', { day: '2-digit', month: 'short' }).format(day),
+            fullLabel: new Intl.DateTimeFormat('es-PE', { weekday: 'short', day: '2-digit', month: 'short' }).format(day),
+            ventas: point.revenue,
+            anterior: point.previousRevenue
+          }
+        }),
+    [data, days]
+  )
 
-    return {
-      metrics,
-      previousMetrics,
-      daily: dailySeries(sales, days > 30 ? 30 : days),
-      monthly: monthlySeries(sales, expenses, 6),
-      byCategory: categoryBreakdown(currentSales, products, categories),
-      top: topProducts(currentSales, products, 5),
-      payments: paymentBreakdown(currentSales),
-      recent: currentSales.slice(0, 5),
-      todayRevenue: salesBetween(sales, startOfDay(new Date()), new Date()).reduce((total, sale) => total + sale.total, 0)
-    }
-  }, [range, sales, expenses, products, categories])
+  const monthly = useMemo<MonthlyPoint[]>(
+    () =>
+      (data?.monthly ?? []).map((point) => ({
+        label: new Intl.DateTimeFormat('es-PE', { month: 'short' }).format(parseDateOnly(point.month)),
+        ventas: point.revenue,
+        gastos: point.expenses,
+        ganancia: point.profit
+      })),
+    [data]
+  )
 
-  const { metrics, previousMetrics } = analytics
+  const byCategory = useMemo(
+    () => (data?.categories ?? []).map((entry) => ({ name: entry.name, value: entry.total, color: entry.color })),
+    [data]
+  )
+
+  const top = useMemo(
+    () =>
+      (data?.products ?? []).map((product) => ({
+        ...product,
+        id: product.id ?? product.sku,
+        emoji: products.find((candidate) => candidate.id === product.id)?.emoji ?? '📦'
+      })),
+    [data, products]
+  )
+
+  const payments = data?.payments ?? []
+  const recent = data?.sales ?? []
+  const todayRevenue = data?.todayRevenue ?? 0
   const openClosing = closings.find((closing) => closing.status === 'abierto')
   const lowStock = products
     .filter((product) => product.active && product.stock <= product.minStock)
@@ -122,6 +155,7 @@ export default function DashboardPage() {
         }
         actions={
           <>
+            {loading ? <Badge tone="neutral">Actualizando…</Badge> : null}
             <SegmentedControl options={[...RANGE_OPTIONS]} value={range} onChange={(value) => setRange(value as Range)} />
             {user && canAccess(user.role, 'pos') ? (
               <Link to="/pos">
@@ -131,6 +165,10 @@ export default function DashboardPage() {
           </>
         }
       />
+
+      {error ? (
+        <p className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger">{error}</p>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
         <StatCard
@@ -194,7 +232,7 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="pb-3">
-            <SalesAreaChart data={analytics.daily} />
+            <SalesAreaChart data={daily} />
           </CardContent>
         </Card>
 
@@ -239,7 +277,7 @@ export default function DashboardPage() {
             <CardContent className="space-y-2.5">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-muted">Ventas de hoy</span>
-                <span className="font-semibold text-foreground">{formatCurrency(analytics.todayRevenue)}</span>
+                <span className="font-semibold text-foreground">{formatCurrency(todayRevenue)}</span>
               </div>
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-muted">Monto esperado</span>
@@ -273,7 +311,7 @@ export default function DashboardPage() {
             <Badge tone="brand">Últimos 6 meses</Badge>
           </CardHeader>
           <CardContent className="pb-3">
-            <PerformanceChart data={analytics.monthly} />
+            <PerformanceChart data={monthly} />
           </CardContent>
         </Card>
 
@@ -285,7 +323,7 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <CategoryDonut data={analytics.byCategory} />
+            <CategoryDonut data={byCategory} />
           </CardContent>
         </Card>
       </div>
@@ -302,7 +340,7 @@ export default function DashboardPage() {
             </Link>
           </CardHeader>
           <CardContent className="space-y-3">
-            {analytics.top.map((product, index) => (
+            {top.map((product, index) => (
               <div key={product.id} className="flex items-center gap-3">
                 <span className="w-4 text-center text-[11px] font-bold text-muted">{index + 1}</span>
                 <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-base">{product.emoji}</span>
@@ -312,7 +350,7 @@ export default function DashboardPage() {
                     <span className="shrink-0 text-xs font-semibold text-foreground">{formatCurrency(product.revenue)}</span>
                   </div>
                   <div className="mt-1 flex items-center gap-2">
-                    <ProgressBar value={(product.revenue / (analytics.top[0]?.revenue || 1)) * 100} />
+                    <ProgressBar value={(product.revenue / (top[0]?.revenue || 1)) * 100} />
                     <span className="shrink-0 text-[10px] text-muted">{formatNumber(product.units, 1)} u.</span>
                   </div>
                 </div>
@@ -369,7 +407,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-2.5">
-              {analytics.payments.map((payment) => (
+              {payments.map((payment) => (
                 <div key={payment.method}>
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-muted">{PAYMENT_LABELS[payment.method]}</span>
@@ -377,7 +415,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="mt-1">
                     <ProgressBar
-                      value={(payment.total / (analytics.payments[0]?.total || 1)) * 100}
+                      value={(payment.total / (payments[0]?.total || 1)) * 100}
                       tone={payment.method === 'efectivo' ? 'brand' : 'success'}
                     />
                   </div>
@@ -400,7 +438,7 @@ export default function DashboardPage() {
             </Link>
           </CardHeader>
           <CardContent className="space-y-2">
-            {analytics.recent.map((sale) => (
+            {recent.map((sale) => (
               <div key={sale.id} className="flex items-center gap-3 rounded-xl border border-line/70 px-2.5 py-2">
                 <span
                   className={cn(
@@ -442,7 +480,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <ProfitLineChart data={analytics.monthly} height={170} />
+              <ProfitLineChart data={monthly} height={170} />
             </CardContent>
           </Card>
         </div>
