@@ -1,3 +1,5 @@
+import { PAYMENT_METHODS, type PaymentMethod } from '@/types'
+import { round2 } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { fail, unwrap } from './errors'
 import type { ExpenseInput } from './types'
@@ -41,6 +43,56 @@ export async function closeCashSession(
 }
 
 export type CashMovementKind = 'ingreso' | 'retiro' | 'gasto' | 'ajuste'
+
+export interface ShiftPaymentTotal {
+  method: PaymentMethod
+  amount: number
+}
+
+export interface ShiftPayments {
+  /** Comprobantes pagados en el día del turno. */
+  salesCount: number
+  totals: ShiftPaymentTotal[]
+}
+
+/**
+ * Desglose de pagos por método para el día del turno abierto.
+ *
+ * `sale_payments` ya no viaja en el snapshot, así que el cierre pide solo las
+ * ventas pagadas de ese día con sus pagos. El rango usa medianoche local para
+ * no arrastrar el día anterior por la conversión a UTC.
+ */
+export async function fetchShiftPayments(date: string): Promise<ShiftPayments> {
+  const start = new Date(`${date}T00:00:00`)
+  const end = new Date(start)
+  end.setDate(end.getDate() + 1)
+
+  const rows = unwrap(
+    await supabase
+      .from('sales')
+      .select('id, sale_payments(amount, payment_methods(code))')
+      .eq('status', 'pagada')
+      .gte('date', start.toISOString())
+      .lt('date', end.toISOString())
+  ) as Array<{ sale_payments?: Array<{ amount?: number; payment_methods?: { code?: string } | null }> | null }>
+
+  const totals = new Map<PaymentMethod, number>()
+  for (const row of rows) {
+    for (const payment of row.sale_payments ?? []) {
+      const amount = Number(payment.amount)
+      if (!Number.isFinite(amount)) continue
+      const method = (payment.payment_methods?.code ?? 'efectivo') as PaymentMethod
+      totals.set(method, round2((totals.get(method) ?? 0) + amount))
+    }
+  }
+
+  return {
+    salesCount: rows.length,
+    totals: PAYMENT_METHODS.map((method) => ({ method, amount: totals.get(method) ?? 0 })).filter(
+      (row) => row.amount > 0
+    )
+  }
+}
 
 export async function registerCashMovement(
   sessionId: string,

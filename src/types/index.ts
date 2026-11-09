@@ -109,13 +109,22 @@ export interface Sale {
   customerId?: string
   customerName: string
   customerDoc: string
+  /** Renglones vendidos. Solo se llena al pedir el detalle del comprobante. */
   items: SaleItem[]
+  /**
+   * Cantidad de renglones. El listado la recibe agregada en Postgres para no
+   * cargar todos los `sale_items` en el snapshot.
+   */
+  itemsCount: number
   subtotal: number
   igv: number
   discount: number
   total: number
   profit: number
+  /** Pagos con monto. Solo se llenan al pedir el detalle del comprobante. */
   payments: Payment[]
+  /** Métodos usados. El listado los recibe sin montos ni referencias. */
+  paymentMethods: PaymentMethod[]
   cashier: string
   status: 'pagada' | 'anulada'
 }

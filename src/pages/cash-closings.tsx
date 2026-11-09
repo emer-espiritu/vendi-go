@@ -9,13 +9,14 @@ import {
   Unlock,
   Wallet
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
-import type { CashClosing, PaymentMethod } from '@/types'
-import { PAYMENT_METHODS } from '@/types'
+import { useEffect, useState } from 'react'
+import type { CashClosing } from '@/types'
 import { useAuth } from '@/store/auth'
+import { useDataStore } from '@/stores/data'
 import { useDemoStore } from '@/store/demo-store'
 import { useToast } from '@/store/toast'
 import { messageOf } from '@/services/errors'
+import { fetchShiftPayments, type ShiftPaymentTotal } from '@/services/cash'
 import { PAYMENT_LABELS } from '@/lib/sales'
 import { cn, formatCurrency, formatNumber, formatTime, round2 } from '@/lib/utils'
 import {
@@ -51,7 +52,8 @@ function differenceLabel(difference?: number) {
 
 export default function CashClosingsPage() {
   const { user } = useAuth()
-  const { closings, sales, registers, openCash, closeCash } = useDemoStore()
+  const { closings, registers, openCash, closeCash } = useDemoStore()
+  const revision = useDataStore((state) => state.revision)
   const { toast } = useToast()
 
   const [closeTarget, setCloseTarget] = useState<CashClosing | null>(null)
@@ -67,20 +69,31 @@ export default function CashClosingsPage() {
   const accumulatedDifference = round2(closed.reduce((sum, closing) => sum + (closing.difference ?? 0), 0))
   const shortages = closed.filter((closing) => (closing.difference ?? 0) < -0.05).length
 
-  const shiftSales = useMemo(
-    () => (openClosing ? sales.filter((sale) => sale.date.slice(0, 10) === openClosing.date && sale.status === 'pagada') : []),
-    [openClosing, sales]
-  )
-
-  const methodTotals = useMemo(() => {
-    const totals = new Map<PaymentMethod, number>()
-    for (const sale of shiftSales) {
-      for (const payment of sale.payments) {
-        totals.set(payment.method, round2((totals.get(payment.method) ?? 0) + payment.amount))
-      }
+  /**
+   * Los pagos del turno ya no están en el snapshot: se piden por fecha y se
+   * vuelven a pedir cuando Realtime recarga los datos (`revision`). Se guarda
+   * la fecha junto al resultado para no mostrar totales de otro turno.
+   */
+  const [shift, setShift] = useState<{ date: string; salesCount: number; totals: ShiftPaymentTotal[] } | null>(null)
+  const shiftDate = openClosing?.date
+  useEffect(() => {
+    if (!shiftDate) return
+    let active = true
+    fetchShiftPayments(shiftDate)
+      .then((value) => {
+        if (active) setShift({ date: shiftDate, ...value })
+      })
+      .catch(() => {
+        if (active) setShift({ date: shiftDate, salesCount: 0, totals: [] })
+      })
+    return () => {
+      active = false
     }
-    return PAYMENT_METHODS.map((method) => ({ method, amount: totals.get(method) ?? 0 })).filter((row) => row.amount > 0)
-  }, [shiftSales])
+  }, [shiftDate, revision])
+
+  const shiftMatches = Boolean(shiftDate && shift?.date === shiftDate)
+  const shiftSalesCount = shiftMatches ? (shift?.salesCount ?? 0) : 0
+  const methodTotals = shiftMatches ? (shift?.totals ?? []) : []
 
   const countedNumber = Number(counted)
   const previewDifference = openClosing && Number.isFinite(countedNumber) ? round2(countedNumber - openClosing.expectedTotal) : 0
@@ -258,7 +271,7 @@ export default function CashClosingsPage() {
           value={formatCurrency(openClosing?.salesTotal ?? 0)}
           icon={ArrowUpRight}
           tone="success"
-          hint={`${formatNumber(shiftSales.length, 0)} comprobantes emitidos`}
+          hint={`${formatNumber(shiftSalesCount, 0)} comprobantes emitidos`}
         />
         <StatCard
           label="Egresos del turno"

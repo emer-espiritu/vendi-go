@@ -16,6 +16,7 @@ import type {
   Customer,
   DocType,
   Expense,
+  Payment,
   PaymentMethod,
   Product,
   ProductReturn,
@@ -69,8 +70,6 @@ export interface RawSnapshot {
   cashSessions: Row[]
   cashRegisters: Row[]
   sales: Row[]
-  saleItems: Row[]
-  salePayments: Row[]
   movements: Row[]
   profiles: Row[]
   /** Directorio mínimo (sin datos de contacto) para mapear `user_id` a nombre. */
@@ -314,33 +313,15 @@ export function mapCashSessions(
   })
 }
 
-export function mapSales(
-  rows: Row[],
-  items: Row[],
-  payments: Row[],
-  methods: Row[],
-  profiles: Row[]
-): Sale[] {
-  const methodMap = byId(methods)
-  const profileMap = byId(profiles)
-  const itemsBySale = new Map<string, Row[]>()
-  const paymentsBySale = new Map<string, Row[]>()
+/** Filas embebidas por PostgREST en una venta (`sale_items`, `sale_payments`). */
+function embeddedRows(value: unknown): Row[] {
+  return Array.isArray(value) ? (value as Row[]) : []
+}
 
-  for (const item of items) {
-    const key = str(item.sale_id)
-    const list = itemsBySale.get(key) ?? []
-    list.push(item)
-    itemsBySale.set(key, list)
-  }
-  for (const payment of payments) {
-    const key = str(payment.sale_id)
-    const list = paymentsBySale.get(key) ?? []
-    list.push(payment)
-    paymentsBySale.set(key, list)
-  }
-
-  return rows.map((row) => {
-    const saleItems: SaleItem[] = (itemsBySale.get(str(row.id)) ?? []).map((item) => ({
+function mapSaleItems(rows: Row[]): SaleItem[] {
+  return rows
+    .filter((item) => item.product_id !== undefined)
+    .map((item) => ({
       id: str(item.id),
       productId: str(item.product_id),
       name: str(item.name),
@@ -355,34 +336,69 @@ export function mapSales(
       baseQty: num(item.base_qty),
       discount: num(item.discount)
     }))
+}
 
-    const payments = (paymentsBySale.get(str(row.id)) ?? []).map((payment) => ({
-      method: str(methodMap.get(str(payment.payment_method_id))?.code, 'efectivo') as PaymentMethod,
-      amount: num(payment.amount),
-      reference: optionalStr(payment.reference)
-    }))
+/**
+ * Convierte una venta con sus recursos embebidos.
+ *
+ * El listado pide `sale_items(count)` y `sale_payments(payment_methods(code))`:
+ * los renglones completos nunca viajan en el snapshot, así que `items` y
+ * `payments` quedan vacíos y solo se llenan `itemsCount` y `paymentMethods`.
+ * El detalle del comprobante pide las filas completas y llena todo.
+ */
+function mapSale(row: Row, methodMap: Map<string, Row>, profileMap: Map<string, Row>): Sale {
+  const embeddedItems = embeddedRows(row.sale_items)
+  const items = mapSaleItems(embeddedItems)
+  const count = embeddedItems.find((item) => typeof item.count === 'number' && item.product_id === undefined)
+  const itemsCount = count ? num(count.count) : items.length
 
-    return {
-      id: str(row.id),
-      code: str(row.code),
-      docType: str(row.doc_type, 'boleta') as DocType,
-      series: str(row.series),
-      number: str(row.number),
-      date: str(row.date),
-      customerId: optionalStr(row.customer_id),
-      customerName: str(row.customer_name, 'Clientes varios'),
-      customerDoc: str(row.customer_doc, '—'),
-      items: saleItems,
-      subtotal: num(row.subtotal),
-      igv: num(row.tax),
-      discount: num(row.discount),
-      total: num(row.total),
-      profit: num(row.profit),
-      payments,
-      cashier: str(profileMap.get(str(row.user_id))?.full_name) || 'Sin usuario',
-      status: str(row.status, 'pagada') as Sale['status']
+  const payments: Payment[] = []
+  const paymentMethods: PaymentMethod[] = []
+  for (const payment of embeddedRows(row.sale_payments)) {
+    const embeddedMethod = payment.payment_methods as Row | null | undefined
+    const method = str(
+      embeddedMethod?.code,
+      str(methodMap.get(str(payment.payment_method_id))?.code, 'efectivo')
+    ) as PaymentMethod
+    if (!paymentMethods.includes(method)) paymentMethods.push(method)
+    // El listado embebe solo el método; el detalle agrega el monto del pago.
+    if (payment.amount !== undefined) {
+      payments.push({ method, amount: num(payment.amount), reference: optionalStr(payment.reference) })
     }
-  })
+  }
+
+  return {
+    id: str(row.id),
+    code: str(row.code),
+    docType: str(row.doc_type, 'boleta') as DocType,
+    series: str(row.series),
+    number: str(row.number),
+    date: str(row.date),
+    customerId: optionalStr(row.customer_id),
+    customerName: str(row.customer_name, 'Clientes varios'),
+    customerDoc: str(row.customer_doc, '—'),
+    items,
+    itemsCount,
+    subtotal: num(row.subtotal),
+    igv: num(row.tax),
+    discount: num(row.discount),
+    total: num(row.total),
+    profit: num(row.profit),
+    payments,
+    paymentMethods,
+    cashier: str(profileMap.get(str(row.user_id))?.full_name) || 'Sin usuario',
+    status: str(row.status, 'pagada') as Sale['status']
+  }
+}
+
+/**
+ * `methods` solo hace falta cuando las filas de `sale_payments` no embeben
+ * `payment_methods(code)`; el detalle usa el embed y puede omitirlo.
+ */
+export function mapSales(rows: Row[], methods: Row[] = [], profiles: Row[] = []): Sale[] {
+  const methodMap = byId(methods)
+  const profileMap = byId(profiles)
+  return rows.map((row) => mapSale(row, methodMap, profileMap))
 }
 
 export function mapMovements(
@@ -536,8 +552,6 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     cashSessions,
     cashRegisters,
     sales,
-    saleItems,
-    salePayments,
     movements,
     profiles,
     profileDirectory,
@@ -604,14 +618,14 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     fetchAllRows((from, to) =>
       supabase
         .from('sales')
-        .select('*')
+        // Los renglones y pagos crecen con cada venta: el listado recibe solo
+        // el conteo de ítems y los métodos usados, nunca las filas completas.
+        .select('*, sale_items(count), sale_payments(payment_methods(code))')
         .is('deleted_at', null)
         .order('date', { ascending: false })
         .order('id')
         .range(from, to)
     ),
-    fetchAllRows((from, to) => supabase.from('sale_items').select('*').order('id').range(from, to)),
-    fetchAllRows((from, to) => supabase.from('sale_payments').select('*').order('id').range(from, to)),
     // Los movimientos son un log que crece sin límite: se muestra solo el historial reciente.
     supabase
       .from('inventory_movements')
@@ -654,8 +668,6 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     cashSessions,
     cashRegisters,
     sales,
-    saleItems,
-    salePayments,
     movements,
     profiles,
     profileDirectory,
@@ -663,29 +675,24 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
   }
 }
 
-/** Trae una venta con sus ítems y pagos; se usa después de cobrar. */
+/** Trae una venta con sus ítems y pagos; se usa después de cobrar y al abrir el detalle. */
 export async function fetchSaleById(id: string): Promise<Sale | null> {
-  const { data: sale, error } = await supabase.from('sales').select('*').eq('id', id).maybeSingle()
+  const { data: sale, error } = await supabase
+    .from('sales')
+    .select('*, sale_items(*), sale_payments(*, payment_methods(code))')
+    .eq('id', id)
+    .maybeSingle()
   if (error) fail(error)
   if (!sale) return null
 
-  const [items, payments, methods, profile] = await Promise.all([
-    supabase.from('sale_items').select('*').eq('sale_id', id),
-    supabase.from('sale_payments').select('*').eq('sale_id', id),
-    supabase.from('payment_methods').select('*'),
-    supabase.from('v_profile_directory').select('*').eq('id', sale.user_id ?? '').maybeSingle()
-  ])
+  const { data: profile, error: profileError } = await supabase
+    .from('v_profile_directory')
+    .select('*')
+    .eq('id', sale.user_id ?? '')
+    .maybeSingle()
+  if (profileError) fail(profileError)
 
-  const failed = [items, payments, methods, profile].find((result) => result.error)
-  if (failed?.error) fail(failed.error)
-
-  const [mapped] = mapSales(
-    [sale as Row],
-    (items.data ?? []) as Row[],
-    (payments.data ?? []) as Row[],
-    (methods.data ?? []) as Row[],
-    profile.data ? ([profile.data] as Row[]) : []
-  )
+  const [mapped] = mapSales([sale as Row], [], profile ? [profile as Row] : [])
   return mapped ?? null
 }
 
@@ -739,13 +746,7 @@ export function mapSnapshot(raw: RawSnapshot, warehouseId?: string): Snapshot {
     raw.customers
   )
   const closings = mapCashSessions(raw.cashSessions, raw.cashRegisters, raw.profileDirectory)
-  const sales = mapSales(
-    raw.sales,
-    raw.saleItems,
-    raw.salePayments,
-    raw.paymentMethods,
-    raw.profileDirectory
-  )
+  const sales = mapSales(raw.sales, raw.paymentMethods, raw.profileDirectory)
   const movements = mapMovements(raw.movements, raw.products, raw.profileDirectory)
 
   return {

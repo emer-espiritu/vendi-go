@@ -11,6 +11,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { DocType, Sale } from '@/types'
+import { useSaleDetail } from '@/hooks/use-sale-detail'
 import { useDemoStore } from '@/store/demo-store'
 import { useToast } from '@/store/toast'
 import { exportExcel } from '@/lib/export'
@@ -59,6 +60,8 @@ export default function ReceiptsPage() {
   const [to, setTo] = useState('')
   const [selected, setSelected] = useState<Sale | null>(null)
   const [width, setWidth] = useState<ReceiptWidth>(80)
+  // El listado no trae ítems ni montos: el detalle completo se pide al abrir.
+  const { sale: detail, loading: detailLoading, error: detailError } = useSaleDetail(selected?.id)
 
   // Deep link: /comprobantes?code=B001-000123 abre el comprobante automáticamente.
   useEffect(() => {
@@ -141,17 +144,17 @@ export default function ReceiptsPage() {
       key: 'items',
       header: 'Ítems',
       align: 'center',
-      sortValue: (sale) => sale.items.length,
-      render: (sale) => <span className="text-xs text-muted">{sale.items.length}</span>
+      sortValue: (sale) => sale.itemsCount,
+      render: (sale) => <span className="text-xs text-muted">{sale.itemsCount}</span>
     },
     {
       key: 'payments',
       header: 'Pago',
       render: (sale) => (
         <div className="flex flex-wrap gap-1">
-          {sale.payments.map((payment, index) => (
-            <Badge key={`${sale.id}-${payment.method}-${index}`} tone="neutral" className="text-[10px]">
-              {PAYMENT_LABELS[payment.method]}
+          {sale.paymentMethods.map((method, index) => (
+            <Badge key={`${sale.id}-${method}-${index}`} tone="neutral" className="text-[10px]">
+              {PAYMENT_LABELS[method]}
             </Badge>
           ))}
         </div>
@@ -207,7 +210,7 @@ export default function ReceiptsPage() {
       cliente: sale.customerName,
       documento: sale.customerDoc,
       cajero: sale.cashier,
-      items: sale.items.length,
+      items: sale.itemsCount,
       total: sale.total,
       estado: sale.status
     }))
@@ -344,7 +347,7 @@ export default function ReceiptsPage() {
             <Button variant="outline" icon={<Download className="size-4" />} onClick={exportRows}>
               Exportar listado
             </Button>
-            <Button icon={<Printer className="size-4" />} onClick={() => window.print()} disabled={!selected}>
+            <Button icon={<Printer className="size-4" />} onClick={() => window.print()} disabled={!detail}>
               Imprimir {width} mm
             </Button>
           </>
@@ -378,9 +381,9 @@ export default function ReceiptsPage() {
               <div className="rounded-xl border border-line bg-surface px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Pago</p>
                 <p className="mt-0.5 text-xs font-semibold text-foreground">
-                  {selected.payments.map((payment) => PAYMENT_LABELS[payment.method]).join(' + ')}
+                  {selected.paymentMethods.map((method) => PAYMENT_LABELS[method]).join(' + ')}
                 </p>
-                <p className="text-[11px] text-muted">{selected.items.length} ítems</p>
+                <p className="text-[11px] text-muted">{selected.itemsCount} ítems</p>
               </div>
             </div>
 
@@ -396,8 +399,20 @@ export default function ReceiptsPage() {
               />
             </div>
 
-            <ReceiptPreview sale={selected} width={width} />
-            <PrintableReceipt sale={selected} width={width} />
+            {detailLoading ? (
+              <p className="rounded-xl border border-dashed border-line px-3 py-8 text-center text-xs text-muted">
+                Cargando el detalle del comprobante…
+              </p>
+            ) : detailError ? (
+              <p className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger">
+                {detailError}
+              </p>
+            ) : detail ? (
+              <>
+                <ReceiptPreview sale={detail} width={width} />
+                <PrintableReceipt sale={detail} width={width} />
+              </>
+            ) : null}
             <p className="text-center text-[11px] text-muted">
               El navegador abrirá el diálogo de impresión con el ancho de papel seleccionado. Elige «Guardar como PDF»
               si necesitas una copia digital.

@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import type { ProductReturn } from '@/types'
+import { useSaleDetail } from '@/hooks/use-sale-detail'
 import { useDemoStore } from '@/store/demo-store'
 import { useToast } from '@/store/toast'
 import { formatCurrency, formatDate, formatNumber, round2, toISODate } from '@/lib/utils'
@@ -117,9 +118,11 @@ export default function ReturnsPage() {
     () => sales.find((sale) => sale.code === selectedSaleCode),
     [sales, selectedSaleCode]
   )
+  // Los renglones ya no viajan en el snapshot: se piden al elegir el comprobante.
+  const { sale: saleDetail, loading: saleLoading } = useSaleDetail(selectedSale?.id)
   const saleItems = useMemo(
-    () => (selectedSale?.items ?? []).filter((item) => Boolean(item.id)),
-    [selectedSale]
+    () => (saleDetail?.items ?? []).filter((item) => Boolean(item.id)),
+    [saleDetail]
   )
   const selectedSaleItem = saleItems.find((item) => item.id === selectedSaleItemId)
   /** Lo vendido menos lo ya devuelto en solicitudes no rechazadas. */
@@ -257,9 +260,17 @@ export default function ReturnsPage() {
   ]
 
   const onSubmit = async (values: ReturnValues) => {
-    const sale = sales.find((item) => item.code === values.saleCode)
-    const saleItem = sale?.items.find((item) => item.id === values.saleItemId)
-    if (!sale || !saleItem?.id) {
+    const sale = saleDetail
+    if (!sale) {
+      toast({
+        title: 'Cargando comprobante',
+        description: 'Espera un instante a que se cargue el detalle y vuelve a intentarlo.',
+        tone: 'warning'
+      })
+      return
+    }
+    const saleItem = sale.items.find((item) => item.id === values.saleItemId)
+    if (!saleItem?.id) {
       toast({
         title: 'Datos incompletos',
         description: 'El producto debe pertenecer al comprobante seleccionado.',
@@ -443,7 +454,7 @@ export default function ReturnsPage() {
             <Button variant="secondary" onClick={() => setCreateOpen(false)}>
               Cancelar
             </Button>
-            <Button form="return-form" type="submit" loading={isSubmitting} icon={<CornerDownLeft className="size-4" />}>
+            <Button form="return-form" type="submit" loading={isSubmitting} disabled={saleLoading} icon={<CornerDownLeft className="size-4" />}>
               Registrar
             </Button>
           </>
@@ -478,13 +489,15 @@ export default function ReturnsPage() {
               hint={
                 selectedSaleItem
                   ? `Vendido: ${formatNumber(selectedSaleItem.qty, 2)} · Ya devuelto: ${formatNumber(alreadyReturned, 2)} · Disponible: ${formatNumber(maxQty, 2)}`
-                  : 'Selecciona primero un comprobante'
+                  : saleLoading
+                    ? 'Cargando los productos del comprobante…'
+                    : 'Selecciona primero un comprobante'
               }
             >
               <Select
                 {...register('saleItemId')}
                 invalid={Boolean(errors.saleItemId)}
-                disabled={!selectedSale}
+                disabled={!saleDetail}
                 onChange={(event) => {
                   register('saleItemId').onChange(event)
                   const item = saleItems.find((saleItem) => saleItem.id === event.target.value)
@@ -495,7 +508,7 @@ export default function ReturnsPage() {
                   }
                 }}
               >
-                <option value="">{selectedSale ? 'Selecciona un producto del comprobante' : 'Selecciona un comprobante'}</option>
+                <option value="">{saleDetail ? 'Selecciona un producto del comprobante' : saleLoading ? 'Cargando comprobante…' : 'Selecciona un comprobante'}</option>
                 {saleItems.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name} · {item.presentationLabel} · {formatNumber(item.qty, 2)} vendidas
