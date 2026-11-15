@@ -10,6 +10,7 @@ import DashboardPage from '@/pages/dashboard'
 import ExpensesPage from '@/pages/expenses'
 import InventoryPage from '@/pages/inventory'
 import LoginPage from '@/pages/login'
+import NotFoundPage from '@/pages/not-found'
 import PosPage from '@/pages/pos'
 import ProductsPage from '@/pages/products'
 import PurchasesPage from '@/pages/purchases'
@@ -69,7 +70,7 @@ export default function App() {
       </Route>
 
       <Route path="/" element={<HomeRedirect />} />
-      <Route path="*" element={<HomeRedirect />} />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   )
 }
