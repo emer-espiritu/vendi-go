@@ -324,6 +324,7 @@ El script deja datos de prueba (un producto desactivado, una compra recibida, un
 
 1. `bun run build` genera `dist/`.
 2. Publica `dist/` en el hosting estático de tu preferencia (Vercel, Netlify, Cloudflare Pages, S3 + CDN).
+   En Vercel el `vercel.json` incluido reescribe `/(.*)` a `/index.html` para que las rutas del router (`/productos`, `/pos`, …) funcionen al recargar o al entrar por enlace directo. Los archivos existentes en `dist/` se sirven antes de aplicar la reescritura, así que los assets no se ven afectados. En otros hostings configura el mismo *SPA fallback* y deja que React Router resuelva las rutas desconocidas con la página 404.
 3. Configura las variables `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` en el entorno de build.
 4. Agrega el dominio final en **Authentication → URL Configuration** (Site URL y Redirect URLs) para que funcione la recuperación de contraseña.
 5. Revisa que RLS esté activo en todas las tablas y que `service_role` no aparezca en el bundle (`grep -r "service_role" dist/`).
