@@ -15,6 +15,7 @@ import PosPage from '@/pages/pos'
 import ProductsPage from '@/pages/products'
 import PurchasesPage from '@/pages/purchases'
 import ReceiptsPage from '@/pages/receipts'
+import ReceivablesPage from '@/pages/receivables'
 import ReportsPage from '@/pages/reports'
 import ReturnsPage from '@/pages/returns'
 import RolesPage from '@/pages/roles'
@@ -59,6 +60,7 @@ export default function App() {
         <Route path="/inventario" element={<InventoryPage />} />
         <Route path="/comprobantes" element={<ReceiptsPage />} />
         <Route path="/clientes" element={<CustomersPage />} />
+        <Route path="/cobranzas" element={<ReceivablesPage />} />
         <Route path="/proveedores" element={<SuppliersPage />} />
         <Route path="/compras" element={<PurchasesPage />} />
         <Route path="/gastos" element={<ExpensesPage />} />

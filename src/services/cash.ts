@@ -52,7 +52,10 @@ export interface ShiftPaymentTotal {
 export interface ShiftPayments {
   /** Comprobantes pagados en el día del turno. */
   salesCount: number
+  /** Cobros con dinero real, por método. */
   totals: ShiftPaymentTotal[]
+  /** Parte fiada del turno: no ingresa dinero al arqueo. */
+  credit: number
 }
 
 /**
@@ -60,7 +63,8 @@ export interface ShiftPayments {
  *
  * `sale_payments` ya no viaja en el snapshot, así que el cierre pide solo las
  * ventas pagadas de ese día con sus pagos. El rango usa medianoche local para
- * no arrastrar el día anterior por la conversión a UTC.
+ * no arrastrar el día anterior por la conversión a UTC. El crédito se acumula
+ * aparte porque cierra la venta pero no deja efectivo en la caja.
  */
 export async function fetchShiftPayments(date: string): Promise<ShiftPayments> {
   const start = new Date(`${date}T00:00:00`)
@@ -77,11 +81,19 @@ export async function fetchShiftPayments(date: string): Promise<ShiftPayments> {
   ) as Array<{ sale_payments?: Array<{ amount?: number; payment_methods?: { code?: string } | null }> | null }>
 
   const totals = new Map<PaymentMethod, number>()
+  let credit = 0
   for (const row of rows) {
     for (const payment of row.sale_payments ?? []) {
       const amount = Number(payment.amount)
       if (!Number.isFinite(amount)) continue
-      const method = (payment.payment_methods?.code ?? 'efectivo') as PaymentMethod
+      const code = payment.payment_methods?.code ?? 'efectivo'
+      if (code === 'credito') {
+        credit = round2(credit + amount)
+        continue
+      }
+      // Métodos desconocidos para la UI no deben inflar el arqueo.
+      if (!(PAYMENT_METHODS as readonly string[]).includes(code)) continue
+      const method = code as PaymentMethod
       totals.set(method, round2((totals.get(method) ?? 0) + amount))
     }
   }
@@ -90,7 +102,8 @@ export async function fetchShiftPayments(date: string): Promise<ShiftPayments> {
     salesCount: rows.length,
     totals: PAYMENT_METHODS.map((method) => ({ method, amount: totals.get(method) ?? 0 })).filter(
       (row) => row.amount > 0
-    )
+    ),
+    credit
   }
 }
 

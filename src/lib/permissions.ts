@@ -16,6 +16,7 @@ export const MODULES: ModuleDefinition[] = [
   { key: 'products', label: 'Productos', path: '/productos', group: 'Gestión', description: 'Catálogo, precios, costos y categorías' },
   { key: 'inventory', label: 'Inventario', path: '/inventario', group: 'Gestión', description: 'Stock, alertas, vencimientos y movimientos' },
   { key: 'customers', label: 'Clientes', path: '/clientes', group: 'Gestión', description: 'Cartera de clientes y consumo' },
+  { key: 'receivables', label: 'Cuentas por cobrar', path: '/cobranzas', group: 'Gestión', description: 'Saldos de clientes y registro de abonos' },
   { key: 'suppliers', label: 'Proveedores', path: '/proveedores', group: 'Gestión', description: 'Directorio de abastecimiento' },
   { key: 'purchases', label: 'Compras', path: '/compras', group: 'Gestión', description: 'Órdenes de compra y recepción' },
   { key: 'expenses', label: 'Gastos', path: '/gastos', group: 'Gestión', description: 'Egresos operativos del negocio' },
@@ -26,9 +27,9 @@ export const MODULES: ModuleDefinition[] = [
 
 export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   administrador: MODULES.map((module) => module.key),
-  gerente: ['dashboard', 'products', 'inventory', 'receipts', 'customers', 'suppliers', 'purchases', 'expenses', 'returns', 'cash', 'reports'],
-  cajero: ['dashboard', 'pos', 'receipts', 'customers', 'cash'],
-  supervisor: ['dashboard', 'pos', 'products', 'inventory', 'receipts', 'customers', 'returns', 'cash'],
+  gerente: ['dashboard', 'products', 'inventory', 'receipts', 'customers', 'receivables', 'suppliers', 'purchases', 'expenses', 'returns', 'cash', 'reports'],
+  cajero: ['dashboard', 'pos', 'receipts', 'customers', 'receivables', 'cash'],
+  supervisor: ['dashboard', 'pos', 'products', 'inventory', 'receipts', 'customers', 'receivables', 'returns', 'cash'],
   almacenero: ['products', 'inventory', 'suppliers', 'purchases']
 }
 

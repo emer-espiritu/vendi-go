@@ -1,6 +1,19 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Eye, Mail, MapPin, Pencil, Phone, Receipt, ShoppingBag, Trash2, UserPlus, Users, Wallet } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import {
+  CreditCard,
+  Eye,
+  Mail,
+  MapPin,
+  Pencil,
+  Phone,
+  Receipt,
+  ShoppingBag,
+  Trash2,
+  UserPlus,
+  Users,
+  Wallet
+} from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import {
@@ -15,6 +28,7 @@ import {
   Input,
   Modal,
   PageHeader,
+  ProgressBar,
   SearchInput,
   SegmentedControl,
   Select,
@@ -22,11 +36,14 @@ import {
   type BadgeTone,
   type Column
 } from '@/components/ui'
-import { formatCurrency, formatDate, formatNumber } from '@/lib/utils'
+import { creditAvailable, creditUsage, hasCreditLine } from '@/lib/credit'
+import { PAYMENT_LABELS } from '@/lib/sales'
+import { formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils'
 import { useDemoStore } from '@/store/demo-store'
 import { useToast } from '@/store/toast'
 import { messageOf } from '@/services/errors'
-import type { Customer } from '@/types'
+import { fetchCustomerCreditMovements } from '@/services/credit'
+import type { Customer, CreditMovement } from '@/types'
 
 const SEGMENT_FILTERS = [
   { value: 'todos', label: 'Todos' },
@@ -61,7 +78,11 @@ const customerSchema = z
       .email('El correo no es válido. Ejemplo: cliente@correo.com'),
     phone: z.string().trim().min(6, 'El teléfono debe tener al menos 6 caracteres.'),
     address: z.string().trim().min(5, 'La dirección debe tener al menos 5 caracteres.'),
-    segment: z.enum(['minorista', 'mayorista', 'corporativo'])
+    segment: z.enum(['minorista', 'mayorista', 'corporativo']),
+    creditLimit: z
+      .number()
+      .min(0, 'El límite de crédito no puede ser negativo.')
+      .max(9999999, 'El límite de crédito es demasiado alto.')
   })
   .refine((values) => values.docType !== 'DNI' || /^\d{8}$/.test(values.docNumber), {
     message: 'El DNI debe tener exactamente 8 dígitos numéricos.',
@@ -82,7 +103,8 @@ function emptyCustomer(): CustomerValues {
     email: '',
     phone: '',
     address: '',
-    segment: 'minorista'
+    segment: 'minorista',
+    creditLimit: 0
   }
 }
 
@@ -141,6 +163,34 @@ export default function CustomersPage() {
       .slice(0, 5)
   }, [sales, detailCustomer])
 
+  const [movements, setMovements] = useState<CreditMovement[]>([])
+  const [movementsLoading, setMovementsLoading] = useState(false)
+  const movementRequest = useRef(0)
+
+  // El libro de crédito se pide solo al abrir la ficha: crece con cada cargo.
+  const openDetail = (customer: Customer) => {
+    setDetailId(customer.id)
+    setMovements([])
+    setMovementsLoading(true)
+    const request = (movementRequest.current += 1)
+    fetchCustomerCreditMovements(customer.id)
+      .then((rows) => {
+        if (movementRequest.current === request) setMovements(rows)
+      })
+      .catch((cause) => {
+        if (movementRequest.current !== request) return
+        setMovements([])
+        toast({
+          title: 'No se pudo cargar el historial de crédito',
+          description: messageOf(cause),
+          tone: 'error'
+        })
+      })
+      .finally(() => {
+        if (movementRequest.current === request) setMovementsLoading(false)
+      })
+  }
+
   const openCreate = () => {
     setEditing(null)
     reset(emptyCustomer())
@@ -156,7 +206,8 @@ export default function CustomersPage() {
       email: customer.email,
       phone: customer.phone,
       address: customer.address,
-      segment: customer.segment
+      segment: customer.segment,
+      creditLimit: customer.creditLimit
     })
     setFormOpen(true)
   }
@@ -192,6 +243,14 @@ export default function CustomersPage() {
   const confirmDelete = async () => {
     if (!deleteTarget) return
     const target = deleteTarget
+    if (target.creditBalance > 0.009) {
+      toast({
+        title: 'El cliente tiene saldo pendiente',
+        description: `${target.name} debe ${formatCurrency(target.creditBalance)}. Registra el abono antes de darlo de baja.`,
+        tone: 'warning'
+      })
+      return
+    }
     try {
       await deleteCustomer(target.id)
       if (detailId === target.id) setDetailId(null)
@@ -259,6 +318,25 @@ export default function CustomersPage() {
       )
     },
     {
+      key: 'credit',
+      header: 'Saldo',
+      align: 'right',
+      sortValue: (customer) => customer.creditBalance,
+      render: (customer) =>
+        customer.creditBalance > 0.009 ? (
+          <span className="inline-flex flex-col items-end">
+            <Badge tone="danger">{formatCurrency(customer.creditBalance)}</Badge>
+            <span className="mt-0.5 text-[10px] text-muted">
+              de {formatCurrency(customer.creditLimit)}
+            </span>
+          </span>
+        ) : hasCreditLine(customer.creditLimit) ? (
+          <Badge tone="success">Al día</Badge>
+        ) : (
+          <span className="text-[11px] text-muted">Sin crédito</span>
+        )
+    },
+    {
       key: 'createdAt',
       header: 'Alta',
       sortValue: (customer) => customer.createdAt,
@@ -276,7 +354,7 @@ export default function CustomersPage() {
             aria-label={`Ver detalle de ${customer.name}`}
             onClick={(event) => {
               event.stopPropagation()
-              setDetailId(customer.id)
+              openDetail(customer)
             }}
           >
             <Eye className="size-4" />
@@ -296,6 +374,12 @@ export default function CustomersPage() {
             variant="ghost"
             size="icon"
             aria-label={`Eliminar ${customer.name}`}
+            disabled={customer.creditBalance > 0.009}
+            title={
+              customer.creditBalance > 0.009
+                ? 'No se puede eliminar un cliente con saldo pendiente'
+                : undefined
+            }
             onClick={(event) => {
               event.stopPropagation()
               setDeleteTarget(customer)
@@ -368,7 +452,7 @@ export default function CustomersPage() {
           keyField={(customer) => customer.id}
           initialSort="customer"
           pageSize={8}
-          onRowClick={(customer) => setDetailId(customer.id)}
+          onRowClick={openDetail}
           emptyTitle="Sin clientes que coincidan"
           emptyDescription="Prueba con otro término de búsqueda o cambia el segmento seleccionado."
         />
@@ -459,6 +543,25 @@ export default function CustomersPage() {
               <option value="corporativo">Corporativo</option>
             </Select>
           </Field>
+
+          <Field
+            label="Límite de crédito"
+            error={errors.creditLimit?.message}
+            hint="Monto máximo de deuda. 0 deshabilita la venta a crédito."
+            className="sm:col-span-2"
+          >
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              inputMode="decimal"
+              placeholder="0.00"
+              invalid={Boolean(errors.creditLimit)}
+              {...register('creditLimit', {
+                setValueAs: (value) => (value === '' || value == null ? 0 : Number(value))
+              })}
+            />
+          </Field>
         </form>
       </Modal>
 
@@ -521,6 +624,105 @@ export default function CustomersPage() {
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Cliente desde</p>
                 <p className="mt-0.5 text-sm font-semibold text-foreground">{formatDate(detailCustomer.createdAt)}</p>
               </div>
+            </div>
+
+            <div className="rounded-xl border border-line/70 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  <CreditCard className="size-3.5" /> Crédito
+                </p>
+                {detailCustomer.creditBalance > 0.009 ? (
+                  <Badge tone="danger">Saldo {formatCurrency(detailCustomer.creditBalance)}</Badge>
+                ) : hasCreditLine(detailCustomer.creditLimit) ? (
+                  <Badge tone="success">Al día</Badge>
+                ) : (
+                  <Badge tone="neutral">Sin línea</Badge>
+                )}
+              </div>
+              {hasCreditLine(detailCustomer.creditLimit) ? (
+                <>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted">Límite</p>
+                      <p className="text-xs font-semibold text-foreground">
+                        {formatCurrency(detailCustomer.creditLimit)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted">Usado</p>
+                      <p className="text-xs font-semibold text-foreground">
+                        {formatCurrency(Math.max(0, detailCustomer.creditBalance))}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted">Disponible</p>
+                      <p className="text-xs font-semibold text-foreground">
+                        {formatCurrency(creditAvailable(detailCustomer.creditLimit, detailCustomer.creditBalance))}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <ProgressBar
+                      value={creditUsage(detailCustomer.creditLimit, detailCustomer.creditBalance)}
+                      tone={
+                        creditUsage(detailCustomer.creditLimit, detailCustomer.creditBalance) >= 100
+                          ? 'danger'
+                          : 'brand'
+                      }
+                    />
+                  </div>
+                </>
+              ) : (
+                <p className="mt-2 text-[11px] text-muted">
+                  Este cliente no tiene crédito habilitado. Asigna un límite para permitir ventas a crédito.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Movimientos de crédito</p>
+              {movementsLoading ? (
+                <p className="rounded-xl border border-dashed border-line px-3 py-5 text-center text-xs text-muted">
+                  Cargando movimientos...
+                </p>
+              ) : movements.length > 0 ? (
+                <div className="max-h-52 space-y-1.5 overflow-y-auto pr-1">
+                  {movements.map((movement) => (
+                    <div
+                      key={movement.id}
+                      className="flex items-start gap-3 rounded-xl border border-line/70 px-3 py-2"
+                    >
+                      <Badge tone={movement.type === 'cargo' ? 'danger' : 'success'}>
+                        {movement.type === 'cargo' ? 'Cargo' : 'Abono'}
+                      </Badge>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-foreground">
+                          {movement.notes || movement.saleCode || (movement.type === 'cargo' ? 'Venta a crédito' : 'Abono')}
+                        </p>
+                        <p className="text-[11px] text-muted">
+                          {formatDateTime(movement.date)}
+                          {movement.method ? ` · ${PAYMENT_LABELS[movement.method]}` : ''}
+                          {movement.user ? ` · ${movement.user}` : ''}
+                        </p>
+                      </div>
+                      <span
+                        className={
+                          movement.type === 'cargo'
+                            ? 'shrink-0 text-xs font-semibold text-danger'
+                            : 'shrink-0 text-xs font-semibold text-success'
+                        }
+                      >
+                        {movement.type === 'cargo' ? '+' : '−'}
+                        {formatCurrency(movement.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-xl border border-dashed border-line px-3 py-5 text-center text-xs text-muted">
+                  Sin cargos ni abonos registrados.
+                </p>
+              )}
             </div>
 
             <div>

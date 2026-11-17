@@ -721,6 +721,15 @@ export default function PosPage() {
         open={paymentOpen}
         onClose={() => setPaymentOpen(false)}
         total={totals.total}
+        credit={
+          selectedCustomer
+            ? {
+                customerName: selectedCustomer.name,
+                creditLimit: selectedCustomer.creditLimit,
+                creditBalance: selectedCustomer.creditBalance,
+              }
+            : null
+        }
         onConfirm={confirmSale}
       />
 

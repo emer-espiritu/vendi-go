@@ -1,4 +1,4 @@
-import type { CartLine, PaymentMethod, Totals } from '@/types'
+import type { CartLine, SalePaymentMethod, Totals } from '@/types'
 import { round2 } from './utils'
 
 export const IGV_RATE = 0.18
@@ -24,20 +24,22 @@ export function computeTotals(lines: CartLine[], globalDiscount = 0): Totals {
   return { gross, discount, total, subtotal, igv, profit }
 }
 
-export const PAYMENT_LABELS: Record<PaymentMethod, string> = {
+export const PAYMENT_LABELS: Record<SalePaymentMethod, string> = {
   efectivo: 'Efectivo',
   visa: 'VISA',
   mastercard: 'Mastercard',
   yape: 'Yape',
   plin: 'Plin',
-  transferencia: 'Transferencia'
+  transferencia: 'Transferencia',
+  credito: 'Crédito'
 }
 
-export const PAYMENT_SHORT: Record<PaymentMethod, string> = {
+export const PAYMENT_SHORT: Record<SalePaymentMethod, string> = {
   efectivo: 'Efectivo',
   visa: 'VISA',
   mastercard: 'MC',
   yape: 'Yape',
   plin: 'Plin',
-  transferencia: 'Transf.'
+  transferencia: 'Transf.',
+  credito: 'Crédito'
 }

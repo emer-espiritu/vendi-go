@@ -7,7 +7,7 @@
  * normalizan los tipos que la UI ya consume.
  */
 import { supabase } from '@/lib/supabase'
-import { PAYMENT_METHODS, type DocType, type PaymentMethod } from '@/types'
+import { PAYMENT_METHODS, type DocType, type PaymentMethod, type SalePaymentMethod } from '@/types'
 import { fail } from './errors'
 
 export interface ReportSummary {
@@ -54,7 +54,8 @@ export interface ReportProduct {
 }
 
 export interface ReportPayment {
-  method: PaymentMethod
+  /** Incluye `credito`: la venta cerró, aunque no haya ingresado dinero. */
+  method: SalePaymentMethod
   total: number
 }
 
@@ -132,8 +133,10 @@ const str = (value: unknown, fallback = ''): string =>
 
 const optionalId = (value: unknown): string | null => (typeof value === 'string' && value ? value : null)
 
-const asPaymentMethod = (value: unknown): PaymentMethod =>
-  PAYMENT_METHODS.includes(value as PaymentMethod) ? (value as PaymentMethod) : 'efectivo'
+const asPaymentMethod = (value: unknown): SalePaymentMethod => {
+  if (value === 'credito') return 'credito'
+  return PAYMENT_METHODS.includes(value as PaymentMethod) ? (value as PaymentMethod) : 'efectivo'
+}
 
 const asDocType = (value: unknown): DocType => (value === 'factura' ? 'factura' : 'boleta')
 

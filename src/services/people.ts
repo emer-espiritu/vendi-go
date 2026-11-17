@@ -18,7 +18,8 @@ export async function createCustomer(input: CustomerInput): Promise<void> {
       email: input.email.trim(),
       phone: input.phone.trim(),
       address: input.address.trim(),
-      segment: input.segment
+      segment: input.segment,
+      credit_limit: input.creditLimit
     })
   )
 }
@@ -32,6 +33,7 @@ export async function updateCustomer(id: string, patch: Partial<CustomerInput>):
   if (patch.phone !== undefined) payload.phone = patch.phone.trim()
   if (patch.address !== undefined) payload.address = patch.address.trim()
   if (patch.segment !== undefined) payload.segment = patch.segment
+  if (patch.creditLimit !== undefined) payload.credit_limit = patch.creditLimit
   if (Object.keys(payload).length === 0) return
 
   unwrap(await supabase.from('customers').update(payload).eq('id', id))

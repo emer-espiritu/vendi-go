@@ -74,7 +74,7 @@ export default function CashClosingsPage() {
    * vuelven a pedir cuando Realtime recarga los datos (`revision`). Se guarda
    * la fecha junto al resultado para no mostrar totales de otro turno.
    */
-  const [shift, setShift] = useState<{ date: string; salesCount: number; totals: ShiftPaymentTotal[] } | null>(null)
+  const [shift, setShift] = useState<{ date: string; salesCount: number; totals: ShiftPaymentTotal[]; credit: number } | null>(null)
   const shiftDate = openClosing?.date
   useEffect(() => {
     if (!shiftDate) return
@@ -84,7 +84,7 @@ export default function CashClosingsPage() {
         if (active) setShift({ date: shiftDate, ...value })
       })
       .catch(() => {
-        if (active) setShift({ date: shiftDate, salesCount: 0, totals: [] })
+        if (active) setShift({ date: shiftDate, salesCount: 0, totals: [], credit: 0 })
       })
     return () => {
       active = false
@@ -94,6 +94,7 @@ export default function CashClosingsPage() {
   const shiftMatches = Boolean(shiftDate && shift?.date === shiftDate)
   const shiftSalesCount = shiftMatches ? (shift?.salesCount ?? 0) : 0
   const methodTotals = shiftMatches ? (shift?.totals ?? []) : []
+  const shiftCredit = shiftMatches ? (shift?.credit ?? 0) : 0
 
   const countedNumber = Number(counted)
   const previewDifference = openClosing && Number.isFinite(countedNumber) ? round2(countedNumber - openClosing.expectedTotal) : 0
@@ -388,7 +389,7 @@ export default function CashClosingsPage() {
             <CircleDollarSign className="size-4 text-brand-600 dark:text-brand-300" />
           </CardHeader>
           <CardContent>
-            {methodTotals.length === 0 ? (
+            {methodTotals.length === 0 && shiftCredit <= 0.009 ? (
               <p className="rounded-xl border border-dashed border-line px-3 py-8 text-center text-xs text-muted">
                 Aún no hay cobros registrados en este turno.
               </p>
@@ -415,6 +416,14 @@ export default function CashClosingsPage() {
                     {formatCurrency(methodTotals.reduce((sum, item) => sum + item.amount, 0))}
                   </span>
                 </div>
+                {shiftCredit > 0.009 ? (
+                  <div className="flex items-center justify-between rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-[11px]">
+                    <span className="font-semibold text-warning">Ventas a crédito</span>
+                    <span className="font-semibold text-warning">
+                      {formatCurrency(shiftCredit)} · no ingresa a caja
+                    </span>
+                  </div>
+                ) : null}
               </div>
             )}
           </CardContent>

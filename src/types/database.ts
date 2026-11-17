@@ -163,17 +163,61 @@ isOneToOne: false
                   ]
                 },"customers": {
                   Row: {
-                    "active": boolean,"address": string,"created_at": string,"deleted_at": string | null,"doc_number": string | null,"doc_type": Database["public"]['Enums']["identity_doc_type"],"email": string,"id": string,"name": string,"phone": string,"purchases_count": number,"segment": Database["public"]['Enums']["customer_segment"],"total_spent": number,"updated_at": string
+                    "active": boolean,"address": string,"created_at": string,"credit_limit": number,"deleted_at": string | null,"doc_number": string | null,"doc_type": Database["public"]['Enums']["identity_doc_type"],"email": string,"id": string,"name": string,"phone": string,"purchases_count": number,"segment": Database["public"]['Enums']["customer_segment"],"total_spent": number,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "active"?: boolean,"address"?: string,"created_at"?: string,"deleted_at"?: string | null,"doc_number"?: string | null,"doc_type"?: Database["public"]['Enums']["identity_doc_type"],"email"?: string,"id"?: string,"name": string,"phone"?: string,"purchases_count"?: number,"segment"?: Database["public"]['Enums']["customer_segment"],"total_spent"?: number,"updated_at"?: string
+                    "active"?: boolean,"address"?: string,"created_at"?: string,"credit_limit"?: number,"deleted_at"?: string | null,"doc_number"?: string | null,"doc_type"?: Database["public"]['Enums']["identity_doc_type"],"email"?: string,"id"?: string,"name": string,"phone"?: string,"purchases_count"?: number,"segment"?: Database["public"]['Enums']["customer_segment"],"total_spent"?: number,"updated_at"?: string
                   }
                   Update: {
-                    "active"?: boolean,"address"?: string,"created_at"?: string,"deleted_at"?: string | null,"doc_number"?: string | null,"doc_type"?: Database["public"]['Enums']["identity_doc_type"],"email"?: string,"id"?: string,"name"?: string,"phone"?: string,"purchases_count"?: number,"segment"?: Database["public"]['Enums']["customer_segment"],"total_spent"?: number,"updated_at"?: string
+                    "active"?: boolean,"address"?: string,"created_at"?: string,"credit_limit"?: number,"deleted_at"?: string | null,"doc_number"?: string | null,"doc_type"?: Database["public"]['Enums']["identity_doc_type"],"email"?: string,"id"?: string,"name"?: string,"phone"?: string,"purchases_count"?: number,"segment"?: Database["public"]['Enums']["customer_segment"],"total_spent"?: number,"updated_at"?: string
                   }
                   Relationships: [
                     
+                  ]
+                },"customer_credit_movements": {
+                  Row: {
+                    "amount": number,"created_at": string,"customer_id": string,"id": string,"notes": string | null,"payment_method_id": string | null,"reference": string | null,"sale_id": string | null,"sale_return_id": string | null,"type": Database["public"]['Enums']["credit_movement_type"],"user_id": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "amount": number,"created_at"?: string,"customer_id": string,"id"?: string,"notes"?: string | null,"payment_method_id"?: string | null,"reference"?: string | null,"sale_id"?: string | null,"sale_return_id"?: string | null,"type": Database["public"]['Enums']["credit_movement_type"],"user_id"?: string | null
+                  }
+                  Update: {
+                    "amount"?: number,"created_at"?: string,"customer_id"?: string,"id"?: string,"notes"?: string | null,"payment_method_id"?: string | null,"reference"?: string | null,"sale_id"?: string | null,"sale_return_id"?: string | null,"type"?: Database["public"]['Enums']["credit_movement_type"],"user_id"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "customer_credit_movements_customer_id_fkey"
+      columns: ["customer_id"]
+isOneToOne: false
+      referencedRelation: "customers"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_credit_movements_sale_id_fkey"
+      columns: ["sale_id"]
+isOneToOne: false
+      referencedRelation: "sales"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_credit_movements_sale_return_id_fkey"
+      columns: ["sale_return_id"]
+isOneToOne: false
+      referencedRelation: "sale_returns"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_credit_movements_payment_method_id_fkey"
+      columns: ["payment_method_id"]
+isOneToOne: false
+      referencedRelation: "payment_methods"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "customer_credit_movements_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
                   ]
                 },"document_sequences": {
                   Row: {
@@ -976,7 +1020,15 @@ isOneToOne: false
                 }
           }
           Views: {
-            "v_cash_sessions": {
+            "customer_credit_balances": {
+                  Row: {
+                    "balance": number,"charged": number,"customer_id": string,"last_movement_at": string | null,"paid": number
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
+                },"v_cash_sessions": {
                   Row: {
                     "cash_register_id": string,"cashier_name": string | null,"closed_at": string | null,"counted_total": number | null,"difference": number | null,"expected_total": number,"expenses_total": number,"id": string,"opened_at": string,"opening_amount": number,"register_code": string,"register_name": string,"sales_total": number,"status": Database["public"]['Enums']["cash_session_status"],"user_id": string
                   }
@@ -1174,6 +1226,9 @@ isOneToOne: false
 "register_cash_movement":
 { Args: { "p_amount": number,"p_cash_session_id": string,"p_description"?: string,"p_type": Database["public"]['Enums']["cash_movement_type"] }; Returns: Json
                            },
+"register_customer_payment":
+{ Args: { "p_amount": number,"p_customer_id": string,"p_method"?: string,"p_notes"?: string,"p_reference"?: string }; Returns: Json
+                           },
 "register_login":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -1194,7 +1249,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "adjustment_status": "pendiente"|"aprobado"|"rechazado","app_role": "administrador"|"gerente"|"supervisor"|"cajero"|"almacenero","base_unit": "und"|"kg"|"lt"|"ml"|"g","cash_movement_type": "apertura"|"venta"|"ingreso"|"retiro"|"gasto"|"ajuste"|"cierre","cash_session_status": "abierta"|"cerrada","customer_segment": "minorista"|"mayorista"|"corporativo","document_type": "boleta"|"factura"|"nota_credito"|"nota_debito"|"guia","identity_doc_type": "DNI"|"RUC"|"CE"|"PASAPORTE","movement_type": "entrada"|"salida"|"ajuste"|"devolucion","payment_status": "pendiente"|"completado"|"rechazado","purchase_status": "pendiente"|"parcial"|"recibida"|"anulada","purchase_unit": "caja"|"saco"|"bolsa"|"paquete"|"plancha"|"tira"|"display","return_status": "pendiente"|"aprobada"|"rechazada","sale_status": "pagada"|"anulada"|"devuelta"
+            "adjustment_status": "pendiente"|"aprobado"|"rechazado","app_role": "administrador"|"gerente"|"supervisor"|"cajero"|"almacenero","base_unit": "und"|"kg"|"lt"|"ml"|"g","cash_movement_type": "apertura"|"venta"|"ingreso"|"retiro"|"gasto"|"ajuste"|"cierre","cash_session_status": "abierta"|"cerrada","credit_movement_type": "cargo"|"abono","customer_segment": "minorista"|"mayorista"|"corporativo","document_type": "boleta"|"factura"|"nota_credito"|"nota_debito"|"guia","identity_doc_type": "DNI"|"RUC"|"CE"|"PASAPORTE","movement_type": "entrada"|"salida"|"ajuste"|"devolucion","payment_status": "pendiente"|"completado"|"rechazado","purchase_status": "pendiente"|"parcial"|"recibida"|"anulada","purchase_unit": "caja"|"saco"|"bolsa"|"paquete"|"plancha"|"tira"|"display","return_status": "pendiente"|"aprobada"|"rechazada","sale_status": "pagada"|"anulada"|"devuelta"
           }
           CompositeTypes: {
             [_ in never]: never

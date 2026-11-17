@@ -36,6 +36,11 @@ import {
   recordExpense,
   type CashRegisterOption
 } from '@/services/cash'
+import {
+  registerCustomerPayment as registerCustomerPaymentRpc,
+  type RegisterPaymentInput,
+  type RegisterPaymentResult
+} from '@/services/credit'
 import { uploadProductImage } from '@/services/storage'
 import type {
   CreateSaleInput,
@@ -48,6 +53,7 @@ import type {
 } from '@/services/types'
 
 export type { CreateSaleInput, CustomerInput, ExpenseInput, ProductInput, PurchaseInput, ReturnInput, SupplierInput }
+export type { RegisterPaymentInput, RegisterPaymentResult }
 
 interface DataState extends Snapshot {
   ready: boolean
@@ -84,6 +90,7 @@ interface DataState extends Snapshot {
   createReturn: (input: ReturnInput) => Promise<void>
   approveReturn: (id: string, approve: boolean) => Promise<void>
   createSale: (input: CreateSaleInput) => Promise<Sale>
+  registerCustomerPayment: (input: RegisterPaymentInput) => Promise<RegisterPaymentResult>
   openCash: (openingAmount: number, registerId?: string) => Promise<void>
   closeCash: (id: string, countedTotal: number, notes?: string) => Promise<void>
   markNotificationRead: (id: string) => void
@@ -233,6 +240,12 @@ export const useDataStore = create<DataState>((set, get) => {
       const sale = await createSaleRpc(input)
       await refresh()
       return sale
+    },
+
+    registerCustomerPayment: async (input) => {
+      const result = await registerCustomerPaymentRpc(input)
+      await refresh()
+      return result
     },
 
     openCash: (openingAmount, registerId) =>

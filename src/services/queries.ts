@@ -13,6 +13,7 @@ import type {
   BaseUnit,
   CashClosing,
   Category,
+  CreditMovement,
   Customer,
   DocType,
   Expense,
@@ -24,6 +25,7 @@ import type {
   PurchaseItem,
   Sale,
   SaleItem,
+  SalePaymentMethod,
   StockMovement,
   Supplier,
   User
@@ -59,6 +61,8 @@ export interface RawSnapshot {
   products: Row[]
   categories: Row[]
   customers: Row[]
+  /** Saldos derivados del libro de crédito, indexados por `customer_id`. */
+  creditBalances: Row[]
   suppliers: Row[]
   purchaseOrders: Row[]
   purchaseItems: Row[]
@@ -133,7 +137,11 @@ export function mapCategories(rows: Row[]): Category[] {
   }))
 }
 
-export function mapCustomers(rows: Row[]): Customer[] {
+export function mapCustomers(rows: Row[], balances: Row[] = []): Customer[] {
+  const balanceMap = new Map(
+    balances.map((row) => [str(row.customer_id), num(row.balance)])
+  )
+
   return rows.map((row) => ({
     id: str(row.id),
     name: str(row.name),
@@ -145,6 +153,8 @@ export function mapCustomers(rows: Row[]): Customer[] {
     segment: str(row.segment, 'minorista') as Customer['segment'],
     purchases: num(row.purchases_count),
     totalSpent: num(row.total_spent),
+    creditLimit: num(row.credit_limit),
+    creditBalance: balanceMap.get(str(row.id)) ?? 0,
     createdAt: dateOnly(row.created_at)
   }))
 }
@@ -353,17 +363,20 @@ function mapSale(row: Row, methodMap: Map<string, Row>, profileMap: Map<string, 
   const itemsCount = count ? num(count.count) : items.length
 
   const payments: Payment[] = []
-  const paymentMethods: PaymentMethod[] = []
+  const paymentMethods: SalePaymentMethod[] = []
+  let creditAmount = 0
   for (const payment of embeddedRows(row.sale_payments)) {
     const embeddedMethod = payment.payment_methods as Row | null | undefined
     const method = str(
       embeddedMethod?.code,
       str(methodMap.get(str(payment.payment_method_id))?.code, 'efectivo')
-    ) as PaymentMethod
+    ) as SalePaymentMethod
     if (!paymentMethods.includes(method)) paymentMethods.push(method)
     // El listado embebe solo el método; el detalle agrega el monto del pago.
     if (payment.amount !== undefined) {
-      payments.push({ method, amount: num(payment.amount), reference: optionalStr(payment.reference) })
+      const amount = num(payment.amount)
+      if (method === 'credito') creditAmount += amount
+      payments.push({ method, amount, reference: optionalStr(payment.reference) })
     }
   }
 
@@ -386,6 +399,7 @@ function mapSale(row: Row, methodMap: Map<string, Row>, profileMap: Map<string, 
     profit: num(row.profit),
     payments,
     paymentMethods,
+    creditAmount: Math.round(creditAmount * 100) / 100,
     cashier: str(profileMap.get(str(row.user_id))?.full_name) || 'Sin usuario',
     status: str(row.status, 'pagada') as Sale['status']
   }
@@ -399,6 +413,32 @@ export function mapSales(rows: Row[], methods: Row[] = [], profiles: Row[] = [])
   const methodMap = byId(methods)
   const profileMap = byId(profiles)
   return rows.map((row) => mapSale(row, methodMap, profileMap))
+}
+
+/**
+ * Traduce el libro de crédito. El nombre del usuario llega por separado para no
+ * depender de un embed sobre `profiles`, que la RLS del personal puede filtrar.
+ */
+export function mapCreditMovements(rows: Row[], profiles: Row[] = []): CreditMovement[] {
+  const profileMap = byId(profiles)
+
+  return rows.map((row) => ({
+    id: str(row.id),
+    customerId: str(row.customer_id),
+    saleId: optionalStr(row.sale_id),
+    saleCode:
+      optionalStr((row.sales as Row | null | undefined)?.code) ?? undefined,
+    returnId: optionalStr(row.sale_return_id),
+    type: str(row.type, 'cargo') as CreditMovement['type'],
+    amount: num(row.amount),
+    method: optionalStr((row.payment_methods as Row | null | undefined)?.code) as
+      | SalePaymentMethod
+      | undefined,
+    reference: optionalStr(row.reference),
+    notes: optionalStr(row.notes),
+    user: str(profileMap.get(str(row.user_id))?.full_name) || 'Sistema',
+    date: str(row.created_at)
+  }))
 }
 
 export function mapMovements(
@@ -541,6 +581,7 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     products,
     categories,
     customers,
+    creditBalances,
     suppliers,
     purchaseOrders,
     purchaseItems,
@@ -571,6 +612,13 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     ),
     fetchAllRows((from, to) =>
       supabase.from('customers').select('*').is('deleted_at', null).order('name').order('id').range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase
+        .from('customer_credit_balances')
+        .select('*')
+        .order('customer_id')
+        .range(from, to)
     ),
     fetchAllRows((from, to) =>
       supabase.from('suppliers').select('*').is('deleted_at', null).order('name').order('id').range(from, to)
@@ -657,6 +705,7 @@ export async function fetchSnapshot(): Promise<RawSnapshot> {
     products,
     categories,
     customers,
+    creditBalances,
     suppliers,
     purchaseOrders,
     purchaseItems,
@@ -696,6 +745,34 @@ export async function fetchSaleById(id: string): Promise<Sale | null> {
   return mapped ?? null
 }
 
+/**
+ * Historial de crédito de un cliente. Se pide bajo demanda: el libro crece con
+ * cada cargo y abono y no debe viajar en el snapshot.
+ */
+export async function fetchCustomerCreditMovements(customerId: string): Promise<CreditMovement[]> {
+  const { data, error } = await supabase
+    .from('customer_credit_movements')
+    .select('*, sales(code), sale_returns(code), payment_methods(code)')
+    .eq('customer_id', customerId)
+    .order('created_at', { ascending: false })
+  if (error) fail(error)
+
+  const rows = (data ?? []) as Row[]
+  const userIds = [...new Set(rows.map((row) => str(row.user_id)).filter(Boolean))]
+
+  let profiles: Row[] = []
+  if (userIds.length > 0) {
+    const { data: directory, error: directoryError } = await supabase
+      .from('v_profile_directory')
+      .select('*')
+      .in('id', userIds)
+    if (directoryError) fail(directoryError)
+    profiles = (directory ?? []) as Row[]
+  }
+
+  return mapCreditMovements(rows, profiles)
+}
+
 export interface Snapshot {
   products: Product[]
   categories: Category[]
@@ -733,7 +810,7 @@ export function resolveWarehouseId(raw: RawSnapshot, userId?: string | null): st
 export function mapSnapshot(raw: RawSnapshot, warehouseId?: string): Snapshot {
   const products = mapProducts(raw.products, warehouseId)
   const categories = mapCategories(raw.categories)
-  const customers = mapCustomers(raw.customers)
+  const customers = mapCustomers(raw.customers, raw.creditBalances)
   const suppliers = mapSuppliers(raw.suppliers)
   const users = mapProfiles(raw.profiles)
   const purchases = mapPurchases(raw.purchaseOrders, raw.purchaseItems, raw.suppliers)

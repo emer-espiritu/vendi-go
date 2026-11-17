@@ -8,6 +8,7 @@ export type ModuleKey =
   | 'inventory'
   | 'receipts'
   | 'customers'
+  | 'receivables'
   | 'suppliers'
   | 'purchases'
   | 'expenses'
@@ -65,11 +66,19 @@ export interface Product {
   createdAt: string
 }
 
+/** Métodos que ingresan dinero al turno. */
 export const PAYMENT_METHODS = ['efectivo', 'visa', 'mastercard', 'yape', 'plin', 'transferencia'] as const
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number]
 
+/**
+ * Cobro a cuenta del crédito del cliente. Cierra la venta pero no entra dinero:
+ * el saldo queda en el libro de cuentas por cobrar.
+ */
+export const CREDIT_METHOD = 'credito' as const
+export type SalePaymentMethod = PaymentMethod | typeof CREDIT_METHOD
+
 export interface Payment {
-  method: PaymentMethod
+  method: SalePaymentMethod
   amount: number
   reference?: string
 }
@@ -124,7 +133,9 @@ export interface Sale {
   /** Pagos con monto. Solo se llenan al pedir el detalle del comprobante. */
   payments: Payment[]
   /** Métodos usados. El listado los recibe sin montos ni referencias. */
-  paymentMethods: PaymentMethod[]
+  paymentMethods: SalePaymentMethod[]
+  /** Parte del total financiada con crédito del cliente. */
+  creditAmount: number
   cashier: string
   status: 'pagada' | 'anulada'
 }
@@ -153,7 +164,28 @@ export interface Customer {
   segment: 'minorista' | 'mayorista' | 'corporativo'
   purchases: number
   totalSpent: number
+  /** Tope de deuda acumulada. `0` deshabilita el crédito. */
+  creditLimit: number
+  /** Saldo derivado del libro de movimientos; negativo es saldo a favor. */
+  creditBalance: number
   createdAt: string
+}
+
+export type CreditMovementType = 'cargo' | 'abono'
+
+export interface CreditMovement {
+  id: string
+  customerId: string
+  saleId?: string
+  saleCode?: string
+  returnId?: string
+  type: CreditMovementType
+  amount: number
+  method?: SalePaymentMethod
+  reference?: string
+  notes?: string
+  user: string
+  date: string
 }
 
 export interface Supplier {

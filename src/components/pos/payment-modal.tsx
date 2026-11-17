@@ -1,27 +1,36 @@
-import { Banknote, CreditCard, Landmark, Plus, Smartphone, Trash2 } from 'lucide-react'
+import { Banknote, CreditCard, HandCoins, Landmark, Plus, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import type { Payment, PaymentMethod } from '@/types'
+import type { Payment, PaymentMethod, SalePaymentMethod } from '@/types'
+import { creditAvailable } from '@/lib/credit'
 import { PAYMENT_LABELS } from '@/lib/sales'
 import { cn, formatCurrency, round2, uid } from '@/lib/utils'
 import { messageOf } from '@/services/errors'
 import { Button, Modal, Select } from '@/components/ui'
 
-const METHODS: PaymentMethod[] = ['efectivo', 'visa', 'mastercard', 'yape', 'plin', 'transferencia']
+/** Métodos que mueven dinero. El crédito se ofrece aparte cuando el cliente lo tiene. */
+const MONEY_METHODS: PaymentMethod[] = ['efectivo', 'visa', 'mastercard', 'yape', 'plin', 'transferencia']
 
-const METHOD_ICONS: Record<PaymentMethod, typeof Banknote> = {
+const METHOD_ICONS: Record<SalePaymentMethod, typeof Banknote> = {
   efectivo: Banknote,
   visa: CreditCard,
   mastercard: CreditCard,
   yape: Smartphone,
   plin: Smartphone,
-  transferencia: Landmark
+  transferencia: Landmark,
+  credito: HandCoins
 }
 
 const QUICK_AMOUNTS = [10, 20, 50, 100, 200]
 
+export interface PaymentCustomerCredit {
+  customerName: string
+  creditLimit: number
+  creditBalance: number
+}
+
 interface PaymentRow {
   id: string
-  method: PaymentMethod
+  method: SalePaymentMethod
   amount: number
 }
 
@@ -33,16 +42,25 @@ export function PaymentModal({
   open,
   onClose,
   total,
+  credit,
   onConfirm
 }: {
   open: boolean
   onClose: () => void
   total: number
+  /** Crédito del cliente seleccionado. Sin cliente no se ofrece fiar. */
+  credit?: PaymentCustomerCredit | null
   onConfirm: (payments: Payment[]) => Promise<void> | void
 }) {
   const [rows, setRows] = useState<PaymentRow[]>(() => buildInitialRows(total))
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  const available = credit ? creditAvailable(credit.creditLimit, credit.creditBalance) : 0
+  const canUseCredit = Boolean(credit) && available > 0
+  const methods: SalePaymentMethod[] = canUseCredit
+    ? [...MONEY_METHODS, 'credito']
+    : MONEY_METHODS
 
   useEffect(() => {
     if (!open) return
@@ -51,13 +69,35 @@ export function PaymentModal({
     setSubmitting(false)
   }, [open, total])
 
-  const paid = useMemo(() => round2(rows.reduce((sum, row) => sum + (Number.isFinite(row.amount) ? row.amount : 0), 0)), [rows])
+  // Si el cliente cambia o se quita, no puede quedar un pago a crédito huérfano.
+  useEffect(() => {
+    if (canUseCredit) return
+    setRows((current) =>
+      current.some((row) => row.method === 'credito')
+        ? current.filter((row) => row.method !== 'credito')
+        : current
+    )
+  }, [canUseCredit])
+
+  const paid = useMemo(
+    () => round2(rows.reduce((sum, row) => sum + (Number.isFinite(row.amount) ? row.amount : 0), 0)),
+    [rows]
+  )
   const remaining = round2(Math.max(0, total - paid))
   const change = round2(Math.max(0, paid - total))
   const cashRows = rows.filter((row) => row.method === 'efectivo')
+  const creditTotal = round2(
+    rows.filter((row) => row.method === 'credito').reduce((sum, row) => sum + row.amount, 0)
+  )
+  /** Lo que todavía debe cubrirse con dinero: la parte fiada no se cobra en caja. */
+  const cashDue = round2(Math.max(0, total - creditTotal))
 
-  const addRow = (method: PaymentMethod) => {
-    setRows((current) => [...current, { id: uid('pay'), method, amount: Math.max(0, round2(total - paid)) }])
+  const addRow = (method: SalePaymentMethod) => {
+    const suggested =
+      method === 'credito'
+        ? Math.min(Math.max(0, round2(total - paid)), available)
+        : Math.max(0, round2(total - paid))
+    setRows((current) => [...current, { id: uid('pay'), method, amount: suggested }])
     setError(null)
   }
 
@@ -93,13 +133,26 @@ export function PaymentModal({
       setError(`Faltan ${formatCurrency(remaining)} por cobrar. Ajusta los montos o agrega otro método de pago.`)
       return
     }
+    if (creditTotal > available + 0.009) {
+      setError(
+        `El crédito disponible de ${credit?.customerName ?? 'el cliente'} es ${formatCurrency(available)}.`
+      )
+      return
+    }
+    if (creditTotal > round2(total) + 0.009) {
+      setError('El monto a crédito no puede superar el total de la venta.')
+      return
+    }
 
     // El comprobante registra exactamente el total: el excedente en efectivo es vuelto.
+    // El crédito no se ajusta como vuelto: solo se descuenta de los pagos en dinero.
     let excess = round2(paid - total)
     const normalized: Payment[] = [...rows]
       .reverse()
       .map((row) => {
-        if (excess <= 0) return { method: row.method, amount: row.amount }
+        if (excess <= 0 || row.method === 'credito') {
+          return { method: row.method, amount: row.amount }
+        }
         const reduction = Math.min(excess, row.amount)
         excess = round2(excess - reduction)
         return { method: row.method, amount: round2(row.amount - reduction) }
@@ -168,8 +221,14 @@ export function PaymentModal({
 
         <div>
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Métodos disponibles</p>
+          {canUseCredit ? (
+            <p className="mb-2 rounded-lg border border-brand/25 bg-brand/5 px-2.5 py-1.5 text-[11px] text-muted">
+              Crédito disponible de <span className="font-semibold text-foreground">{credit?.customerName}</span>:{' '}
+              <span className="font-semibold text-brand-700 dark:text-brand-300">{formatCurrency(available)}</span>
+            </p>
+          ) : null}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {METHODS.map((method) => {
+            {methods.map((method) => {
               const Icon = METHOD_ICONS[method]
               return (
                 <button
@@ -199,11 +258,13 @@ export function PaymentModal({
                 </span>
                 <Select
                   value={row.method}
-                  onChange={(event) => updateRow(row.id, { method: event.target.value as PaymentMethod })}
+                  onChange={(event) =>
+                    updateRow(row.id, { method: event.target.value as SalePaymentMethod })
+                  }
                   className="h-9 w-32 shrink-0 bg-surface"
                   aria-label="Método de pago"
                 >
-                  {METHODS.map((method) => (
+                  {methods.map((method) => (
                     <option key={method} value={method}>
                       {PAYMENT_LABELS[method]}
                     </option>
@@ -239,12 +300,12 @@ export function PaymentModal({
           <span className="text-[11px] font-semibold text-muted">Efectivo rápido:</span>
           <button
             type="button"
-            onClick={() => applyQuickAmount(total)}
+            onClick={() => applyQuickAmount(cashDue)}
             className="rounded-lg border border-brand/40 bg-brand/10 px-2 py-1 text-[11px] font-semibold text-brand-700 transition hover:bg-brand/20 dark:text-brand-300"
           >
             Pago exacto
           </button>
-          {QUICK_AMOUNTS.filter((amount) => amount >= total).map((amount) => (
+          {QUICK_AMOUNTS.filter((amount) => amount >= cashDue).map((amount) => (
             <button
               key={amount}
               type="button"

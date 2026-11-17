@@ -11,7 +11,10 @@ import type {
 } from '@/types'
 
 export type ProductInput = Omit<Product, 'id' | 'createdAt'> & { createdAt?: string }
-export type CustomerInput = Omit<Customer, 'id' | 'purchases' | 'totalSpent' | 'createdAt'>
+export type CustomerInput = Omit<
+  Customer,
+  'id' | 'purchases' | 'totalSpent' | 'creditBalance' | 'createdAt'
+>
 export type SupplierInput = Omit<Supplier, 'id'>
 export type ExpenseInput = Omit<Expense, 'id' | 'code'> & { code?: string }
 export type PurchaseInput = Omit<Purchase, 'id' | 'code' | 'status'> & {
