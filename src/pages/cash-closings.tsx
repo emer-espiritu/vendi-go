@@ -16,7 +16,7 @@ import { useDataStore } from '@/stores/data'
 import { useDemoStore } from '@/store/demo-store'
 import { useToast } from '@/store/toast'
 import { messageOf } from '@/services/errors'
-import { fetchShiftPayments, type ShiftPaymentTotal } from '@/services/cash'
+import { fetchShiftPayments, splitShiftMethods, type ShiftPaymentTotal } from '@/services/cash'
 import { PAYMENT_LABELS } from '@/lib/sales'
 import { cn, formatCurrency, formatNumber, formatTime, round2 } from '@/lib/utils'
 import {
@@ -95,6 +95,12 @@ export default function CashClosingsPage() {
   const shiftSalesCount = shiftMatches ? (shift?.salesCount ?? 0) : 0
   const methodTotals = shiftMatches ? (shift?.totals ?? []) : []
   const shiftCredit = shiftMatches ? (shift?.credit ?? 0) : 0
+  // El cierre informa efectivo y Yape; tarjetas, Plin, transferencias y
+  // crédito quedan fuera del dinero que se cuenta en el turno.
+  const { cash: shiftCash, yape: shiftYape, others: shiftOthers } = splitShiftMethods(methodTotals)
+  const reportedTotals = methodTotals.filter(
+    (row) => row.method === 'efectivo' || row.method === 'yape'
+  )
 
   const countedNumber = Number(counted)
   const previewDifference = openClosing && Number.isFinite(countedNumber) ? round2(countedNumber - openClosing.expectedTotal) : 0
@@ -272,7 +278,7 @@ export default function CashClosingsPage() {
           value={formatCurrency(openClosing?.salesTotal ?? 0)}
           icon={ArrowUpRight}
           tone="success"
-          hint={`${formatNumber(shiftSalesCount, 0)} comprobantes emitidos`}
+          hint={`${formatNumber(shiftSalesCount, 0)} comprobantes · todos los medios`}
         />
         <StatCard
           label="Egresos del turno"
@@ -313,7 +319,7 @@ export default function CashClosingsPage() {
                     <p className="mt-0.5 text-sm font-semibold text-brand-700 dark:text-brand-300">
                       {formatCurrency(openClosing.expectedTotal)}
                     </p>
-                    <p className="text-[11px] text-muted">Apertura + ventas − egresos</p>
+                    <p className="text-[11px] text-muted">Apertura + efectivo − egresos</p>
                   </div>
                 </div>
 
@@ -323,8 +329,12 @@ export default function CashClosingsPage() {
                     <span className="font-semibold text-foreground">{formatCurrency(openClosing.openingAmount)}</span>
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-muted">
-                    <span>Ventas cobradas</span>
-                    <span className="font-semibold text-success">+{formatCurrency(openClosing.salesTotal)}</span>
+                    <span>Efectivo cobrado</span>
+                    <span className="font-semibold text-success">+{formatCurrency(shiftCash)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-muted">
+                    <span>Yape cobrado</span>
+                    <span className="font-semibold text-success">+{formatCurrency(shiftYape)}</span>
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-muted">
                     <span>Gastos pagados</span>
@@ -333,7 +343,7 @@ export default function CashClosingsPage() {
                   <ProgressBar
                     value={
                       openClosing.expectedTotal > 0
-                        ? Math.min(100, (openClosing.salesTotal / Math.max(openClosing.expectedTotal, 1)) * 100)
+                        ? Math.min(100, (shiftCash / Math.max(openClosing.expectedTotal, 1)) * 100)
                         : 0
                     }
                     tone="brand"
@@ -383,8 +393,8 @@ export default function CashClosingsPage() {
         <Card>
           <CardHeader>
             <div>
-              <CardTitle>Cobros por método</CardTitle>
-              <p className="mt-0.5 text-xs text-muted">Distribución del turno abierto.</p>
+              <CardTitle>Efectivo y Yape</CardTitle>
+              <p className="mt-0.5 text-xs text-muted">Lo vendido en cada medio del turno abierto.</p>
             </div>
             <CircleDollarSign className="size-4 text-brand-600 dark:text-brand-300" />
           </CardHeader>
@@ -395,27 +405,43 @@ export default function CashClosingsPage() {
               </p>
             ) : (
               <div className="space-y-3">
-                {methodTotals.map((row) => {
-                  const totalShift = methodTotals.reduce((sum, item) => sum + item.amount, 0)
-                  const share = totalShift > 0 ? (row.amount / totalShift) * 100 : 0
-                  return (
-                    <div key={row.method}>
-                      <div className="mb-1 flex items-center justify-between text-[11px]">
-                        <span className="font-semibold text-foreground">{PAYMENT_LABELS[row.method]}</span>
-                        <span className="text-muted">
-                          {formatCurrency(row.amount)} · {share.toFixed(0)}%
-                        </span>
-                      </div>
-                      <ProgressBar value={share} tone={row.method === 'efectivo' ? 'success' : 'brand'} />
+                {reportedTotals.length > 0 ? (
+                  <>
+                    {reportedTotals.map((row) => {
+                      const reportedTotal = round2(shiftCash + shiftYape)
+                      const share = reportedTotal > 0 ? (row.amount / reportedTotal) * 100 : 0
+                      return (
+                        <div key={row.method}>
+                          <div className="mb-1 flex items-center justify-between text-[11px]">
+                            <span className="font-semibold text-foreground">{PAYMENT_LABELS[row.method]}</span>
+                            <span className="text-muted">
+                              {formatCurrency(row.amount)} · {share.toFixed(0)}%
+                            </span>
+                          </div>
+                          <ProgressBar value={share} tone={row.method === 'efectivo' ? 'success' : 'brand'} />
+                        </div>
+                      )
+                    })}
+                    <div className="flex items-center justify-between border-t border-line pt-2 text-[11px]">
+                      <span className="font-semibold text-muted">Total efectivo + Yape</span>
+                      <span className="font-semibold text-foreground">
+                        {formatCurrency(round2(shiftCash + shiftYape))}
+                      </span>
                     </div>
-                  )
-                })}
-                <div className="flex items-center justify-between border-t border-line pt-2 text-[11px]">
-                  <span className="font-semibold text-muted">Total cobrado</span>
-                  <span className="font-semibold text-foreground">
-                    {formatCurrency(methodTotals.reduce((sum, item) => sum + item.amount, 0))}
-                  </span>
-                </div>
+                  </>
+                ) : (
+                  <p className="rounded-xl border border-dashed border-line px-3 py-4 text-center text-xs text-muted">
+                    Sin cobros en efectivo ni Yape en este turno.
+                  </p>
+                )}
+                {shiftOthers > 0.009 ? (
+                  <div className="flex items-center justify-between rounded-xl border border-line px-3 py-2 text-[11px]">
+                    <span className="font-semibold text-muted">Otros medios de pago</span>
+                    <span className="font-semibold text-muted">
+                      {formatCurrency(shiftOthers)} · fuera del cierre
+                    </span>
+                  </div>
+                ) : null}
                 {shiftCredit > 0.009 ? (
                   <div className="flex items-center justify-between rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-[11px]">
                     <span className="font-semibold text-warning">Ventas a crédito</span>
@@ -486,8 +512,13 @@ export default function CashClosingsPage() {
                 <p className="mt-0.5 text-sm font-semibold text-foreground">{formatCurrency(closeTarget.expectedTotal)}</p>
               </div>
               <div className="rounded-xl border border-line bg-surface-2 px-3 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Ventas del turno</p>
-                <p className="mt-0.5 text-sm font-semibold text-success">{formatCurrency(closeTarget.salesTotal)}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Efectivo + Yape</p>
+                <p className="mt-0.5 text-sm font-semibold text-success">
+                  {formatCurrency(round2(shiftCash + shiftYape))}
+                </p>
+                <p className="text-[11px] text-muted">
+                  Efectivo {formatCurrency(shiftCash)} · Yape {formatCurrency(shiftYape)}
+                </p>
               </div>
             </div>
 

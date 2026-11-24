@@ -58,6 +58,33 @@ export interface ShiftPayments {
   credit: number
 }
 
+export interface ShiftCashBreakdown {
+  /** Efectivo que sí entra al arqueo. */
+  cash: number
+  /** Yape: se informa en el cierre, pero no suma al esperado de la caja. */
+  yape: number
+  /** Tarjetas, Plin y transferencias: quedan fuera del cierre de caja. */
+  others: number
+}
+
+/** Separa los medios que se informan en el cierre del resto de cobros. */
+export function splitShiftMethods(totals: ShiftPaymentTotal[]): ShiftCashBreakdown {
+  const amountOf = (method: PaymentMethod) =>
+    round2(totals.find((row) => row.method === method)?.amount ?? 0)
+
+  return {
+    cash: amountOf('efectivo'),
+    yape: amountOf('yape'),
+    others: round2(
+      totals.reduce(
+        (sum, row) =>
+          row.method === 'efectivo' || row.method === 'yape' ? sum : sum + row.amount,
+        0
+      )
+    )
+  }
+}
+
 /**
  * Desglose de pagos por método para el día del turno abierto.
  *
